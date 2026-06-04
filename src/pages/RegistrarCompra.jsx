@@ -12,7 +12,7 @@ export default function RegistrarCompra() {
 
   const [dpi, setDpi] = useState('')
   const [cliente, setCliente] = useState(null)
-  const [saldo, setSaldo] = useState(0)
+  const [saldoPrevio, setSaldoPrevio] = useState(0)
   const [monto, setMonto] = useState('')
   const [config, setConfig] = useState({ montoMinimo: 100, puntosPor100: 10, valorPunto: 1 })
 
@@ -27,7 +27,7 @@ export default function RegistrarCompra() {
     event.preventDefault()
     setError('')
     setCliente(null)
-    setSaldo(0)
+    setSaldoPrevio(0)
     setMonto('')
     setMessage('')
     setVentanaAbierta(false)
@@ -41,14 +41,23 @@ export default function RegistrarCompra() {
     if (fetchError) { setError(fetchError.message); return }
     if (!data) { setError('No se encontró cliente con ese DPI.'); return }
     setCliente(data)
-    setSaldo(Number(data.puntos?.[0]?.saldo || 0))
+    setSaldoPrevio(Number(data.puntos?.[0]?.saldo || 0))
   }
 
   const montoNum = Number(monto || 0)
-  const descuentoDisponible = Math.min(saldo * config.valorPunto, montoNum)
-  const montoConDescuento = montoNum - descuentoDisponible
-  const puntosGanarNormal = calcularPuntosConConfig(montoNum, config)
-  const puntosGanarConDescuento = calcularPuntosConConfig(montoConDescuento, config)
+
+  // Puntos que gana con esta compra
+  const puntosNuevos = calcularPuntosConConfig(montoNum, config)
+
+  // Total de puntos disponibles para descuento = previos + los que gana ahora
+  const puntosDisponibles = saldoPrevio + puntosNuevos
+
+  // Valor del descuento en quetzales
+  const descuento = Math.min(puntosDisponibles * config.valorPunto, montoNum)
+  const montoConDescuento = montoNum - descuento
+
+  // El descuento está disponible si hay algún punto (previo o nuevo)
+  const puedeDescontar = puntosDisponibles > 0
 
   function abrirVentana() {
     setError('')
@@ -63,7 +72,9 @@ export default function RegistrarCompra() {
     setLoading(true)
     setError('')
     try {
-      const puntosUsados = usarDescuento ? saldo : 0
+      // Si usa descuento: se gastan todos los puntos disponibles
+      const puntosUsados = usarDescuento ? puntosDisponibles : 0
+
       const result = await registrarCompra({
         clienteId: cliente.id,
         montoTotal: montoNum,
@@ -73,15 +84,16 @@ export default function RegistrarCompra() {
 
       const partes = []
       if (usarDescuento && result.descuento > 0) {
-        partes.push(`Descuento de ${money(result.descuento)} aplicado.`)
+        partes.push(`Descuento de ${money(result.descuento)} aplicado (${puntosUsados} puntos).`)
         partes.push(`Total cobrado: ${money(result.montoFinal)}.`)
+        if (result.puntosGanados > 0) partes.push(`Ganó ${result.puntosGanados} puntos nuevos.`)
       } else {
-        partes.push(`Compra registrada: ${money(montoNum)}.`)
+        partes.push(`Compra de ${money(montoNum)} registrada.`)
+        if (result.puntosGanados > 0) partes.push(`Ganó ${result.puntosGanados} puntos → saldo total: ${saldoPrevio + result.puntosGanados} puntos.`)
       }
-      if (result.puntosGanados > 0) partes.push(`Ganó ${result.puntosGanados} puntos.`)
 
       setMessage(partes.join(' '))
-      setSaldo((prev) => Math.max(prev - puntosUsados, 0) + result.puntosGanados)
+      setSaldoPrevio((prev) => Math.max(prev - puntosUsados, 0) + result.puntosGanados)
       setMonto('')
     } catch (err) {
       setError(err.message)
@@ -94,7 +106,7 @@ export default function RegistrarCompra() {
     <Navbar>
       <PageHeader
         title="Registrar compra"
-        subtitle={`${config.puntosPor100} puntos por cada Q100 • 1 punto = Q${config.valorPunto} • Requiere DPI`}
+        subtitle={`${config.puntosPor100} pts por Q100 • 1 pt = Q${config.valorPunto} • Requiere DPI`}
       />
 
       {error ? <div className="error">{error}</div> : null}
@@ -105,11 +117,17 @@ export default function RegistrarCompra() {
         <form className="card grid" onSubmit={buscar}>
           <h2 className="font-display">Buscar cliente</h2>
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>Requiere DPI del cliente.</p>
-          <input className="input-field" placeholder="DPI del cliente" value={dpi} onChange={(e) => setDpi(e.target.value)} required />
+          <input
+            className="input-field"
+            placeholder="DPI del cliente"
+            value={dpi}
+            onChange={(e) => setDpi(e.target.value)}
+            required
+          />
           <button type="submit" className="btn-primary">Buscar</button>
         </form>
 
-        {/* Compra */}
+        {/* Registrar compra */}
         <div className="card grid">
           <h2 className="font-display">Compra en tienda</h2>
 
@@ -117,10 +135,8 @@ export default function RegistrarCompra() {
             <div className="card" style={{ background: '#f0faf6', padding: 12 }}>
               <strong>{cliente.nombre}</strong>
               <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                Puntos acumulados: <strong>{saldo}</strong>
-                {saldo > 0
-                  ? <span> = <strong>{money(saldo * config.valorPunto)}</strong> de descuento disponible</span>
-                  : ' (sin puntos)'}
+                Puntos previos: <strong>{saldoPrevio}</strong>
+                {saldoPrevio > 0 ? ` = ${money(saldoPrevio * config.valorPunto)}` : ''}
               </div>
             </div>
           ) : (
@@ -138,12 +154,17 @@ export default function RegistrarCompra() {
             disabled={!cliente}
           />
 
-          {montoNum > 0 ? (
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              {puntosGanarNormal > 0
-                ? `Ganará ${puntosGanarNormal} punto${puntosGanarNormal !== 1 ? 's' : ''} con esta compra.`
-                : `Compra menor a ${money(config.montoMinimo)} — no acumula puntos.`}
-            </p>
+          {montoNum > 0 && cliente ? (
+            <div className="card" style={{ background: '#f7f9f7', padding: 10, fontSize: 13 }}>
+              {puntosNuevos > 0
+                ? <span>Esta compra genera <strong>{puntosNuevos} puntos</strong> = <strong>{money(puntosNuevos * config.valorPunto)}</strong></span>
+                : <span className="muted">Compra menor a {money(config.montoMinimo)} — no genera puntos.</span>}
+              {saldoPrevio > 0 ? (
+                <div style={{ marginTop: 4 }}>
+                  Puntos previos: <strong>{saldoPrevio}</strong> — Total disponible: <strong>{puntosDisponibles} pts = {money(puntosDisponibles * config.valorPunto)}</strong>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           <button
@@ -158,7 +179,7 @@ export default function RegistrarCompra() {
         </div>
       </div>
 
-      {/* Ventana de elección de puntos */}
+      {/* Ventana de elección */}
       {ventanaAbierta ? (
         <div
           style={{
@@ -173,36 +194,39 @@ export default function RegistrarCompra() {
           }}
           onClick={(e) => { if (e.target === e.currentTarget) setVentanaAbierta(false) }}
         >
-          <div
-            className="card"
-            style={{ width: '100%', maxWidth: 420, display: 'grid', gap: 16 }}
-          >
+          <div className="card" style={{ width: '100%', maxWidth: 420, display: 'grid', gap: 16 }}>
             <div>
               <h2 className="font-display" style={{ margin: '0 0 6px', fontSize: 22 }}>
-                Total: {money(montoNum)}
+                Compra: {money(montoNum)}
               </h2>
               <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-                {cliente?.nombre} &bull; {saldo} puntos acumulados
+                {cliente?.nombre}
               </p>
+              {puntosDisponibles > 0 ? (
+                <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--mall-dark)' }}>
+                  Puntos disponibles: <strong>{puntosDisponibles}</strong> = <strong>{money(puntosDisponibles * config.valorPunto)}</strong> de descuento
+                  {puntosNuevos > 0 ? ` (${saldoPrevio} previos + ${puntosNuevos} de esta compra)` : ''}
+                </p>
+              ) : null}
             </div>
 
-            {/* Opción 1: descuento */}
+            {/* Opción 1: descuento ahora */}
             <button
               type="button"
               className="btn-accent"
               onClick={() => registrar(true)}
-              disabled={saldo === 0}
+              disabled={!puedeDescontar}
               style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
                 padding: '16px 18px', gap: 6, textAlign: 'left',
-                opacity: saldo === 0 ? 0.45 : 1,
+                opacity: puedeDescontar ? 1 : 0.45,
               }}
             >
               <strong style={{ fontSize: 16 }}>Hacer descuento en esta compra</strong>
               <span style={{ fontSize: 13, fontWeight: 400 }}>
-                {saldo > 0
-                  ? `Descuento de ${money(descuentoDisponible)} → cobrar ${money(montoConDescuento)}${puntosGanarConDescuento > 0 ? ` + gana ${puntosGanarConDescuento} pts` : ''}`
-                  : 'Sin puntos acumulados'}
+                {puedeDescontar
+                  ? `−${money(descuento)} → cobrar ${money(montoConDescuento)}`
+                  : 'Sin puntos disponibles para descuento'}
               </span>
             </button>
 
@@ -219,7 +243,7 @@ export default function RegistrarCompra() {
               <strong style={{ fontSize: 16 }}>Acumular a la cuenta</strong>
               <span style={{ fontSize: 13, fontWeight: 400 }}>
                 Cobrar {money(montoNum)} completo
-                {puntosGanarNormal > 0 ? ` + gana ${puntosGanarNormal} pts` : ''}
+                {puntosNuevos > 0 ? ` → gana ${puntosNuevos} puntos (total: ${saldoPrevio + puntosNuevos} pts)` : ''}
               </span>
             </button>
 
