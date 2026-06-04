@@ -16,7 +16,7 @@ export default function RegistrarCompra() {
   const [monto, setMonto] = useState('')
   const [config, setConfig] = useState({ montoMinimo: 100, puntosPor100: 10, valorPunto: 1 })
 
-  const [showEleccion, setShowEleccion] = useState(false)
+  const [ventanaAbierta, setVentanaAbierta] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -30,7 +30,7 @@ export default function RegistrarCompra() {
     setSaldo(0)
     setMonto('')
     setMessage('')
-    setShowEleccion(false)
+    setVentanaAbierta(false)
 
     const { data, error: fetchError } = await supabase
       .from('usuarios')
@@ -45,25 +45,25 @@ export default function RegistrarCompra() {
   }
 
   const montoNum = Number(monto || 0)
-  const maxDescuento = saldo * config.valorPunto
-  const puntosGanarSinCanjear = calcularPuntosConConfig(montoNum, config)
-  const montoConDescuento = Math.max(montoNum - maxDescuento, 0)
-  const puntosGanarConCanjear = calcularPuntosConConfig(montoConDescuento, config)
+  const descuentoDisponible = Math.min(saldo * config.valorPunto, montoNum)
+  const montoConDescuento = montoNum - descuentoDisponible
+  const puntosGanarNormal = calcularPuntosConConfig(montoNum, config)
+  const puntosGanarConDescuento = calcularPuntosConConfig(montoConDescuento, config)
 
-  function clickPagar(event) {
-    event.preventDefault()
+  function abrirVentana() {
     setError('')
     setMessage('')
+    if (!cliente) { setError('Primero busca un cliente.'); return }
     if (!montoNum || montoNum <= 0) { setError('Ingresa un monto válido.'); return }
-    setShowEleccion(true)
+    setVentanaAbierta(true)
   }
 
-  async function registrar(canjear) {
-    setShowEleccion(false)
+  async function registrar(usarDescuento) {
+    setVentanaAbierta(false)
     setLoading(true)
     setError('')
     try {
-      const puntosUsados = canjear ? saldo : 0
+      const puntosUsados = usarDescuento ? saldo : 0
       const result = await registrarCompra({
         clienteId: cliente.id,
         montoTotal: montoNum,
@@ -71,13 +71,14 @@ export default function RegistrarCompra() {
         puntosUsados,
       })
 
-      const partes = [`Compra registrada por ${money(montoNum)}.`]
-      if (canjear && result.descuento > 0) {
-        partes.push(`Se canjearon ${saldo} puntos → descuento de ${money(result.descuento)}.`)
+      const partes = []
+      if (usarDescuento && result.descuento > 0) {
+        partes.push(`Descuento de ${money(result.descuento)} aplicado.`)
         partes.push(`Total cobrado: ${money(result.montoFinal)}.`)
+      } else {
+        partes.push(`Compra registrada: ${money(montoNum)}.`)
       }
-      if (result.puntosGanados > 0) partes.push(`Ganó ${result.puntosGanados} puntos nuevos.`)
-      else partes.push('No alcanzó el mínimo para ganar puntos.')
+      if (result.puntosGanados > 0) partes.push(`Ganó ${result.puntosGanados} puntos.`)
 
       setMessage(partes.join(' '))
       setSaldo((prev) => Math.max(prev - puntosUsados, 0) + result.puntosGanados)
@@ -103,13 +104,13 @@ export default function RegistrarCompra() {
         {/* Buscar cliente */}
         <form className="card grid" onSubmit={buscar}>
           <h2 className="font-display">Buscar cliente</h2>
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>La acumulación de puntos requiere DPI del cliente.</p>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>Requiere DPI del cliente.</p>
           <input className="input-field" placeholder="DPI del cliente" value={dpi} onChange={(e) => setDpi(e.target.value)} required />
-          <button className="btn-primary">Buscar</button>
+          <button type="submit" className="btn-primary">Buscar</button>
         </form>
 
         {/* Compra */}
-        <form className="card grid" onSubmit={clickPagar}>
+        <div className="card grid">
           <h2 className="font-display">Compra en tienda</h2>
 
           {cliente ? (
@@ -117,7 +118,9 @@ export default function RegistrarCompra() {
               <strong>{cliente.nombre}</strong>
               <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
                 Puntos acumulados: <strong>{saldo}</strong>
-                {saldo > 0 ? <span> = <strong>{money(saldo * config.valorPunto)}</strong> de descuento disponible</span> : null}
+                {saldo > 0
+                  ? <span> = <strong>{money(saldo * config.valorPunto)}</strong> de descuento disponible</span>
+                  : ' (sin puntos)'}
               </div>
             </div>
           ) : (
@@ -126,74 +129,105 @@ export default function RegistrarCompra() {
 
           <input
             className="input-field"
-            type="number" min="0" step="0.01"
+            type="number"
+            min="0"
+            step="0.01"
             placeholder="Monto total de la compra (Q)"
             value={monto}
             onChange={(e) => setMonto(e.target.value)}
             disabled={!cliente}
-            required
           />
 
           {montoNum > 0 ? (
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              {puntosGanarSinCanjear > 0
-                ? `Ganará ${puntosGanarSinCanjear} punto${puntosGanarSinCanjear !== 1 ? 's' : ''} con esta compra.`
+              {puntosGanarNormal > 0
+                ? `Ganará ${puntosGanarNormal} punto${puntosGanarNormal !== 1 ? 's' : ''} con esta compra.`
                 : `Compra menor a ${money(config.montoMinimo)} — no acumula puntos.`}
             </p>
           ) : null}
 
-          <button className="btn-accent" disabled={!cliente || loading} style={{ fontSize: 15 }}>
+          <button
+            type="button"
+            className="btn-accent"
+            disabled={!cliente || !montoNum || loading}
+            style={{ fontSize: 15 }}
+            onClick={abrirVentana}
+          >
             {loading ? 'Registrando...' : 'Pagar'}
           </button>
-        </form>
+        </div>
       </div>
 
-      {/* Ventana de elección */}
-      {showEleccion ? (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(15,31,26,.6)',
-          display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16,
-        }}>
-          <div className="card" style={{ width: 'min(400px,100%)', display: 'grid', gap: 14 }}>
+      {/* Ventana de elección de puntos */}
+      {ventanaAbierta ? (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(15,31,26,.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 20,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setVentanaAbierta(false) }}
+        >
+          <div
+            className="card"
+            style={{ width: '100%', maxWidth: 420, display: 'grid', gap: 16 }}
+          >
             <div>
-              <h2 className="font-display" style={{ margin: '0 0 4px', fontSize: 20 }}>
-                Compra: {money(montoNum)}
+              <h2 className="font-display" style={{ margin: '0 0 6px', fontSize: 22 }}>
+                Total: {money(montoNum)}
               </h2>
-              <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-                {cliente?.nombre} • {saldo} puntos acumulados
-                {saldo > 0 ? ` (${money(saldo * config.valorPunto)} disponibles)` : ''}
+              <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+                {cliente?.nombre} &bull; {saldo} puntos acumulados
               </p>
             </div>
 
+            {/* Opción 1: descuento */}
             <button
-              className="btn-accent"
               type="button"
+              className="btn-accent"
               onClick={() => registrar(true)}
               disabled={saldo === 0}
-              style={{ padding: '16px', textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start', gap: 4, fontSize: 15 }}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                padding: '16px 18px', gap: 6, textAlign: 'left',
+                opacity: saldo === 0 ? 0.45 : 1,
+              }}
             >
-              <strong>Hacer descuento en esta compra</strong>
-              {saldo > 0
-                ? <span style={{ fontSize: 12, fontWeight: 400, opacity: .85 }}>
-                    −{money(Math.min(maxDescuento, montoNum))} de descuento → cobrar {money(montoConDescuento)}
-                  </span>
-                : <span style={{ fontSize: 12, fontWeight: 400, opacity: .7 }}>El cliente no tiene puntos acumulados</span>}
-            </button>
-
-            <button
-              className="btn-primary"
-              type="button"
-              onClick={() => registrar(false)}
-              style={{ padding: '16px', textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start', gap: 4, fontSize: 15 }}
-            >
-              <strong>Acumular a la cuenta</strong>
-              <span style={{ fontSize: 12, fontWeight: 400, opacity: .85 }}>
-                Cobrar {money(montoNum)} completo
-                {puntosGanarSinCanjear > 0 ? ` • gana ${puntosGanarSinCanjear} puntos nuevos` : ''}
+              <strong style={{ fontSize: 16 }}>Hacer descuento en esta compra</strong>
+              <span style={{ fontSize: 13, fontWeight: 400 }}>
+                {saldo > 0
+                  ? `Descuento de ${money(descuentoDisponible)} → cobrar ${money(montoConDescuento)}${puntosGanarConDescuento > 0 ? ` + gana ${puntosGanarConDescuento} pts` : ''}`
+                  : 'Sin puntos acumulados'}
               </span>
             </button>
 
-            <button className="btn-outline" type="button" onClick={() => setShowEleccion(false)}>
+            {/* Opción 2: acumular */}
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => registrar(false)}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                padding: '16px 18px', gap: 6, textAlign: 'left',
+              }}
+            >
+              <strong style={{ fontSize: 16 }}>Acumular a la cuenta</strong>
+              <span style={{ fontSize: 13, fontWeight: 400 }}>
+                Cobrar {money(montoNum)} completo
+                {puntosGanarNormal > 0 ? ` + gana ${puntosGanarNormal} pts` : ''}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="btn-outline"
+              onClick={() => setVentanaAbierta(false)}
+            >
               Cancelar
             </button>
           </div>
