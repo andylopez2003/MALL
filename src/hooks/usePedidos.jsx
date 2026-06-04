@@ -14,9 +14,38 @@ export function usePedidos() {
     return data || []
   }
 
-  async function cambiarEstado(id, estado) {
-    const { error } = await supabase.from('pedidos').update({ estado }).eq('id', id)
+  async function cambiarEstado(pedido, nuevoEstado) {
+    const { error } = await supabase
+      .from('pedidos')
+      .update({ estado: nuevoEstado })
+      .eq('id', pedido.id)
     if (error) throw error
+
+    // Generar cupón automáticamente al entregar si el pedido califica
+    if (nuevoEstado === 'entregado' && pedido.genera_cupon && pedido.cliente_id) {
+      const { data: configData } = await supabase
+        .from('configuracion')
+        .select('clave, valor')
+        .in('clave', ['valor_cupon_domicilio', 'dias_vencimiento_cupon'])
+      const config = Object.fromEntries((configData || []).map((i) => [i.clave, i.valor]))
+      const valor = Number(config.valor_cupon_domicilio || 10)
+      const dias  = Number(config.dias_vencimiento_cupon || 14)
+      const codigo = `MALL-${Date.now().toString(36).toUpperCase()}`
+      const vence  = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toISOString()
+
+      await supabase.from('cupones').insert({
+        codigo,
+        cliente_id: pedido.cliente_id,
+        pedido_id: pedido.id,
+        valor,
+        estado: 'activo',
+        fecha_emision: new Date().toISOString(),
+        fecha_vencimiento: vence,
+      })
+
+      // Marcar que el cupón ya fue generado para no duplicarlo
+      await supabase.from('pedidos').update({ genera_cupon: false }).eq('id', pedido.id)
+    }
   }
 
   return { pedidosHoy, cambiarEstado }
