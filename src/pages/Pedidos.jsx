@@ -22,8 +22,8 @@ const BOTON_SIGUIENTE = {
   en_camino:  { label: 'Marcar entregado',  siguiente: 'entregado'  },
 }
 
-// ── Imprimir factura ──────────────────────────────────────────────────────
-function imprimirFactura(pedido) {
+// ── Imprimir factura + cupones (documento unificado) ─────────────────────
+function imprimirFacturaYCupones(pedido) {
   const items = pedido.detalle_pedidos || []
   const lineasHTML = items.length
     ? items.map((i) => `
@@ -33,6 +33,23 @@ function imprimirFactura(pedido) {
           <span class="item-sub">Q${Number(i.subtotal || 0).toFixed(2)}</span>
         </div>`).join('')
     : '<div class="muted-row">Sin detalle de productos</div>'
+
+  const cupones = (pedido.cupones || []).filter((c) => c.estado === 'activo')
+
+  const ticketsHTML = cupones.length > 0 ? `
+    <div style="page-break-before:always">
+      <h2 style="font-size:20px;text-align:center;font-weight:900;letter-spacing:2px;margin:0 0 4px">MALL</h2>
+      <p style="text-align:center;color:#888;font-size:11px;margin:0 0 14px">Cupones de descuento &mdash; Pedido ${pedido.id?.slice(0, 8).toUpperCase()} &mdash; ${pedido.usuarios?.nombre || '&mdash;'}</p>
+      ${cupones.map((c, idx) => `
+        <div class="ticket">
+          <div class="ticket-header">&#127903;&#65039; Cup&oacute;n de Descuento MALL</div>
+          <div class="ticket-code">${c.codigo}</div>
+          <div class="ticket-value">Q${Number(c.valor || 0).toFixed(2)}</div>
+          <div class="ticket-info">V&aacute;lido hasta: ${new Date(c.fecha_vencimiento || '').toLocaleDateString('es-GT')}</div>
+          <div class="ticket-num">Cup&oacute;n ${idx + 1} de ${cupones.length}</div>
+          ${idx < cupones.length - 1 ? '<div class="cut">&mdash;&mdash;&mdash;&mdash; Recortar aqu&iacute; &mdash;&mdash;&mdash;&mdash;</div>' : ''}
+        </div>`).join('')}
+    </div>` : ''
 
   const html = `<!DOCTYPE html><html><head><title>MALL - Factura</title><meta charset="UTF-8">
 <style>
@@ -51,6 +68,13 @@ function imprimirFactura(pedido) {
   .total-row{display:flex;justify-content:space-between;font-weight:900;font-size:17px;border-top:2px solid #000;padding-top:8px;margin-top:8px}
   .footer{text-align:center;font-size:10px;color:#bbb;margin-top:14px}
   .badge{display:inline-block;background:#1D9E75;color:white;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700}
+  .ticket{border:2px dashed #1D9E75;border-radius:10px;padding:16px;text-align:center;margin-bottom:10px}
+  .ticket-header{font-size:11px;color:#1D9E75;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+  .ticket-code{font-family:monospace;font-size:26px;font-weight:900;letter-spacing:4px;color:#1a1a1a;margin-bottom:6px}
+  .ticket-value{font-size:22px;font-weight:900;color:#1D9E75;margin-bottom:4px}
+  .ticket-info{font-size:11px;color:#888;margin-bottom:4px}
+  .ticket-num{font-size:10px;color:#bbb}
+  .cut{font-size:11px;color:#ccc;margin-top:10px;letter-spacing:1px}
   @media print{body{padding:0}}
 </style></head>
 <body>
@@ -70,45 +94,6 @@ function imprimirFactura(pedido) {
   ${lineasHTML}
   <div class="total-row"><span>TOTAL</span><span>Q${Number(pedido.monto_total || 0).toFixed(2)}</span></div>
   <div class="footer">MALL &mdash; Gracias por tu pedido</div>
-</body></html>`
-
-  const w = window.open('', '_blank', 'width=520,height=750')
-  if (w) { w.document.write(html); w.document.close(); w.focus(); window.setTimeout(() => { w.print(); w.close() }, 600) }
-}
-
-// ── Imprimir cupones ──────────────────────────────────────────────────────
-function imprimirCupones(pedido) {
-  const cupones = (pedido.cupones || []).filter((c) => c.estado === 'activo')
-  if (cupones.length === 0) { window.alert('No hay cupones activos para imprimir.'); return }
-
-  const ticketsHTML = cupones.map((c, idx) => `
-    <div class="ticket">
-      <div class="ticket-header">&#127903;&#65039; Cup&oacute;n de Descuento MALL</div>
-      <div class="ticket-code">${c.codigo}</div>
-      <div class="ticket-value">Q${Number(c.valor || 0).toFixed(2)}</div>
-      <div class="ticket-info">V&aacute;lido hasta: ${new Date(c.fecha_vencimiento || '').toLocaleDateString('es-GT')}</div>
-      <div class="ticket-num">Cup&oacute;n ${idx + 1} de ${cupones.length}</div>
-      ${idx < cupones.length - 1 ? '<div class="cut">&mdash;&mdash;&mdash;&mdash; Recortar aqu&iacute; &mdash;&mdash;&mdash;&mdash;</div>' : ''}
-    </div>`).join('')
-
-  const html = `<!DOCTYPE html><html><head><title>MALL - Cupones</title><meta charset="UTF-8">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:16px;font-size:13px}
-  h1{font-size:20px;text-align:center;font-weight:900;letter-spacing:2px;margin-bottom:4px}
-  .sub{text-align:center;color:#888;font-size:11px;margin-bottom:16px}
-  .ticket{border:2px dashed #1D9E75;border-radius:10px;padding:16px;text-align:center;margin-bottom:10px}
-  .ticket-header{font-size:11px;color:#1D9E75;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
-  .ticket-code{font-family:monospace;font-size:26px;font-weight:900;letter-spacing:4px;color:#1a1a1a;margin-bottom:6px}
-  .ticket-value{font-size:22px;font-weight:900;color:#1D9E75;margin-bottom:4px}
-  .ticket-info{font-size:11px;color:#888;margin-bottom:4px}
-  .ticket-num{font-size:10px;color:#bbb}
-  .cut{font-size:11px;color:#ccc;margin-top:10px;letter-spacing:1px}
-  @media print{body{padding:0}}
-</style></head>
-<body>
-  <h1>MALL</h1>
-  <p class="sub">Cupones generados &mdash; Pedido ${pedido.id?.slice(0, 8).toUpperCase()} &mdash; Cliente: ${pedido.usuarios?.nombre || '&mdash;'}</p>
   ${ticketsHTML}
 </body></html>`
 
@@ -218,18 +203,11 @@ export default function Pedidos() {
         {/* Factura */}
         <Factura items={p.detalle_pedidos} montoTotal={p.monto_total} />
 
-        {/* Botones de impresión — visibles desde que se confirma */}
+        {/* Botón unificado de impresión — visible desde que se confirma */}
         {confirmado ? (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="btn-outline" style={{ fontSize: 13, flex: 1 }} onClick={() => imprimirFactura(p)}>
-              🖨️ Imprimir factura
-            </button>
-            {cuponesActivos.length > 0 ? (
-              <button type="button" className="btn-outline" style={{ fontSize: 13, flex: 1 }} onClick={() => imprimirCupones(p)}>
-                🎟️ Imprimir cupones ({cuponesActivos.length})
-              </button>
-            ) : null}
-          </div>
+          <button type="button" className="btn-outline" style={{ fontSize: 13, width: '100%' }} onClick={() => imprimirFacturaYCupones(p)}>
+            🖨️ Imprimir factura{cuponesActivos.length > 0 ? ` + ${cuponesActivos.length} cupón${cuponesActivos.length > 1 ? 'es' : ''}` : ''}
+          </button>
         ) : null}
 
         {/* Cupones generados — mostrar códigos */}

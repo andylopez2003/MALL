@@ -41,7 +41,8 @@ export default function Reportes() {
   const [customStart, setCustomStart] = useState(dateInputValue(new Date()))
   const [customEnd, setCustomEnd] = useState(dateInputValue(new Date()))
   const [tab, setTab] = useState('compras')
-  const [data, setData] = useState({ compras: [], pedidos: [], movimientos: [], productos: [] })
+  const [filtroCupon, setFiltroCupon] = useState('todos')
+  const [data, setData] = useState({ compras: [], pedidos: [], movimientos: [], productos: [], cupones: [] })
   const [loading, setLoading] = useState(false)
   const [busqueda, setBusqueda] = useState('')
 
@@ -51,11 +52,12 @@ export default function Reportes() {
     async function load() {
       setLoading(true)
       setBusqueda('')
-      const [compras, pedidos, movimientos, detalles] = await Promise.all([
+      const [compras, pedidos, movimientos, detalles, cupones] = await Promise.all([
         supabase.from('compras').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('pedidos').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('movimientos_puntos').select('*, usuarios(nombre, dpi)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('detalle_pedidos').select('nombre_producto, cantidad, precio_unitario, subtotal, pedidos!inner(created_at)').gte('pedidos.created_at', range.start).lte('pedidos.created_at', range.end),
+        supabase.from('cupones').select('*, usuarios(nombre, dpi)').gte('fecha_emision', range.start).lte('fecha_emision', range.end).order('fecha_emision', { ascending: false }),
       ])
 
       const productosAgrupados = Object.values((detalles.data || []).reduce((acc, d) => {
@@ -71,6 +73,7 @@ export default function Reportes() {
         pedidos: pedidos.data || [],
         movimientos: movimientos.data || [],
         productos: productosAgrupados,
+        cupones: cupones.data || [],
       })
       setLoading(false)
     }
@@ -99,11 +102,18 @@ export default function Reportes() {
     !q || p.nombre.toLowerCase().includes(q)
   )
 
+  const cuponesVisisbles = data.cupones.filter((c) => {
+    const matchQ = !q || c.codigo?.includes(q.toUpperCase()) || c.usuarios?.nombre?.toLowerCase().includes(q) || c.usuarios?.dpi?.includes(q)
+    const matchFiltro = filtroCupon === 'todos' || c.estado === filtroCupon
+    return matchQ && matchFiltro
+  })
+
   const TABS = [
-    { id: 'compras',     label: `Compras tienda (${data.compras.length})` },
-    { id: 'pedidos',     label: `Pedidos domicilio (${data.pedidos.length})` },
-    { id: 'puntos',      label: `Movimientos puntos (${data.movimientos.length})` },
-    { id: 'productos',   label: `Productos vendidos (${data.productos.length})` },
+    { id: 'compras',   label: `Compras tienda (${data.compras.length})` },
+    { id: 'pedidos',   label: `Pedidos domicilio (${data.pedidos.length})` },
+    { id: 'puntos',    label: `Movimientos puntos (${data.movimientos.length})` },
+    { id: 'productos', label: `Productos vendidos (${data.productos.length})` },
+    { id: 'cupones',   label: `Cupones (${data.cupones.length})` },
   ]
 
   return (
@@ -140,22 +150,29 @@ export default function Reportes() {
         ))}
       </div>
 
-      {/* Buscador */}
-      {tab !== 'productos' ? (
-        <div style={{ marginBottom: 12 }}>
-          <input
-            className="input-field"
-            placeholder={tab === 'compras' ? 'Buscar por nombre, DPI o teléfono...' : tab === 'pedidos' ? 'Buscar por nombre, DPI o teléfono...' : 'Buscar por nombre o DPI...'}
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            style={{ maxWidth: 380 }}
-          />
-        </div>
-      ) : (
-        <div style={{ marginBottom: 12 }}>
-          <input className="input-field" placeholder="Buscar producto..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} style={{ maxWidth: 380 }} />
-        </div>
-      )}
+      {/* Buscador + filtro estado cupones */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <input
+          className="input-field"
+          placeholder={
+            tab === 'compras'   ? 'Buscar por nombre, DPI o teléfono...' :
+            tab === 'pedidos'   ? 'Buscar por nombre, DPI o teléfono...' :
+            tab === 'cupones'   ? 'Buscar por código, nombre o DPI...' :
+            tab === 'productos' ? 'Buscar producto...' :
+            'Buscar por nombre o DPI...'
+          }
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          style={{ maxWidth: 340 }}
+        />
+        {tab === 'cupones' ? (
+          <div style={{ display: 'flex', gap: 6 }}>
+            {[['todos','Todos'],['activo','Activos'],['canjeado','Canjeados'],['vencido','Vencidos']].map(([v, l]) => (
+              <button key={v} className={filtroCupon === v ? 'btn-primary' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setFiltroCupon(v)}>{l}</button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       {loading ? <div className="card muted" style={{ textAlign: 'center', padding: 24 }}>Cargando datos...</div> : null}
 
@@ -273,6 +290,51 @@ export default function Reportes() {
                 </tr>
               ))}
             </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {/* Tabla Cupones */}
+      {!loading && tab === 'cupones' ? (
+        <div className="card table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Fecha emisión</th>
+                <th>Código</th>
+                <th style={{ textAlign: 'right' }}>Valor</th>
+                <th>Cliente</th>
+                <th>DPI</th>
+                <th>Estado</th>
+                <th>Vence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cuponesVisisbles.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
+              ) : cuponesVisisbles.map((c) => (
+                <tr key={c.id}>
+                  <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(c.fecha_emision)}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>{c.codigo}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.valor)}</td>
+                  <td><strong>{c.usuarios?.nombre || '—'}</strong></td>
+                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.dpi || '—'}</td>
+                  <td><Badge text={c.estado} /></td>
+                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.fecha_vencimiento ? new Date(c.fecha_vencimiento).toLocaleDateString('es-GT') : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+            {cuponesVisisbles.length > 0 ? (
+              <tfoot>
+                <tr style={{ fontWeight: 900, background: '#f0faf6' }}>
+                  <td colSpan={2}>Total</td>
+                  <td style={{ textAlign: 'right' }}>{money(cuponesVisisbles.reduce((s, c) => s + Number(c.valor || 0), 0))}</td>
+                  <td colSpan={4} style={{ fontSize: 12, color: 'var(--mall-muted)' }}>
+                    Activos: {cuponesVisisbles.filter(c => c.estado === 'activo').length} · Canjeados: {cuponesVisisbles.filter(c => c.estado === 'canjeado').length}
+                  </td>
+                </tr>
+              </tfoot>
+            ) : null}
           </table>
         </div>
       ) : null}
