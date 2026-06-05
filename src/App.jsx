@@ -6,6 +6,7 @@ import Clientes from './pages/Clientes.jsx'
 import RegistrarCompra from './pages/RegistrarCompra.jsx'
 import CanjearPuntos from './pages/CanjearPuntos.jsx'
 import CanjearCupon from './pages/CanjearCupon.jsx'
+import GenerarCupon from './pages/GenerarCupon.jsx'
 import Productos from './pages/Productos.jsx'
 import Ofertas from './pages/Ofertas.jsx'
 import Pedidos from './pages/Pedidos.jsx'
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/registrar-compra" element={<ProtectedRoute><RegistrarCompra /></ProtectedRoute>} />
         <Route path="/canjear-puntos" element={<ProtectedRoute><CanjearPuntos /></ProtectedRoute>} />
         <Route path="/canjear-cupon" element={<ProtectedRoute><CanjearCupon /></ProtectedRoute>} />
+        <Route path="/generar-cupon" element={<ProtectedRoute><GenerarCupon /></ProtectedRoute>} />
         <Route path="/productos" element={<ProtectedRoute><Productos /></ProtectedRoute>} />
         <Route path="/ofertas" element={<ProtectedRoute><Ofertas /></ProtectedRoute>} />
         <Route path="/pedidos" element={<ProtectedRoute><Pedidos /></ProtectedRoute>} />

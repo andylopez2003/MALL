@@ -27,6 +27,7 @@ export default function Pedidos() {
   const [pedidos, setPedidos] = useState([])
   const [error, setError] = useState('')
   const [cambiando, setCambiando] = useState(null)
+  const [copiado, setCopiado] = useState(null)
 
   async function load() {
     try { setPedidos(await pedidosHoy()) } catch (err) { setError(err.message) }
@@ -51,14 +52,77 @@ export default function Pedidos() {
     load()
   }
 
-  const activos   = pedidos.filter((p) => p.estado !== 'entregado' && p.estado !== 'cancelado')
+  function copiarCodigo(codigo) {
+    navigator.clipboard?.writeText(codigo)
+    setCopiado(codigo)
+    window.setTimeout(() => setCopiado(null), 2000)
+  }
+
+  const activos    = pedidos.filter((p) => p.estado !== 'entregado' && p.estado !== 'cancelado')
   const terminados = pedidos.filter((p) => p.estado === 'entregado' || p.estado === 'cancelado')
+
+  function Factura({ items, montoTotal }) {
+    if (!items?.length) return null
+    return (
+      <div style={{ border: '1px solid #e5e9e6', borderRadius: 8, overflow: 'hidden', fontSize: 13 }}>
+        {/* Encabezado */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr auto auto auto',
+          gap: '0 10px',
+          padding: '6px 10px',
+          background: '#f7f9f7',
+          fontWeight: 700,
+          fontSize: 11,
+          color: 'var(--mall-muted)',
+          textTransform: 'uppercase',
+          letterSpacing: 0.5,
+          borderBottom: '1px solid #e5e9e6',
+        }}>
+          <span>Producto</span>
+          <span style={{ textAlign: 'right' }}>Cant.</span>
+          <span style={{ textAlign: 'right' }}>P/U</span>
+          <span style={{ textAlign: 'right' }}>Total</span>
+        </div>
+        {/* Filas de productos */}
+        {items.map((item, idx) => (
+          <div key={idx} style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr auto auto auto',
+            gap: '0 10px',
+            padding: '7px 10px',
+            borderBottom: idx < items.length - 1 ? '1px solid #f0f2f0' : 'none',
+            alignItems: 'center',
+          }}>
+            <span style={{ fontWeight: 600 }}>{item.nombre_producto}</span>
+            <span style={{ textAlign: 'right', color: 'var(--mall-muted)' }}>×{item.cantidad}</span>
+            <span style={{ textAlign: 'right', color: 'var(--mall-muted)' }}>{money(item.precio_unitario)}</span>
+            <span style={{ textAlign: 'right', fontWeight: 700 }}>{money(item.subtotal)}</span>
+          </div>
+        ))}
+        {/* Total */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '8px 10px',
+          background: '#f0f8f4',
+          borderTop: '2px solid #c7e8d8',
+          fontWeight: 800,
+          fontSize: 14,
+        }}>
+          <span>Total</span>
+          <span className="price">{money(montoTotal)}</span>
+        </div>
+      </div>
+    )
+  }
 
   function PedidoCard({ p }) {
     const estadoInfo = ESTADO_LABEL[p.estado] || ESTADO_LABEL.pendiente
     const siguienteInfo = BOTON_SIGUIENTE[p.estado]
     const idxActual = FLUJO.indexOf(p.estado)
     const terminado = p.estado === 'entregado' || p.estado === 'cancelado'
+    const cuponActivo = p.cupones?.find((c) => c.estado === 'activo')
 
     return (
       <div className="card" style={{ display: 'grid', gap: 12 }}>
@@ -77,9 +141,56 @@ export default function Pedidos() {
         <div style={{ display: 'grid', gap: 4, fontSize: 13 }}>
           <div><span className="muted">Dirección: </span>{p.direccion_entrega}</div>
           <div><span className="muted">Horario: </span><strong>{p.hora_entrega_asignada || p.horario || '—'}</strong></div>
-          <div><span className="muted">Total: </span><strong className="price" style={{ fontSize: 15 }}>{money(p.monto_total)}</strong></div>
-          {p.genera_cupon ? <div style={{ fontSize: 12, color: 'var(--mall-accent)' }}>🎟️ Genera cupón al entregar</div> : null}
+          {p.genera_cupon && p.estado === 'pendiente'
+            ? <div style={{ fontSize: 12, color: 'var(--mall-accent)' }}>🎟️ Generará cupón al confirmar</div>
+            : null}
         </div>
+
+        {/* Factura de productos */}
+        <Factura items={p.detalle_pedidos} montoTotal={p.monto_total} />
+
+        {/* Cupón generado — mostrar para imprimir / enviar */}
+        {cuponActivo ? (
+          <div style={{
+            background: '#dff7ed',
+            border: '1.5px dashed var(--mall-main)',
+            borderRadius: 10,
+            padding: '12px 14px',
+            display: 'grid',
+            gap: 6,
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--mall-main)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              🎟️ Cupón generado — entregar al cliente
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 900, letterSpacing: 3, color: 'var(--mall-dark)' }}>
+              {cuponActivo.codigo}
+            </div>
+            <div style={{ fontSize: 13 }}>
+              Valor: <strong className="price">{money(cuponActivo.valor)}</strong>
+              {cuponActivo.fecha_vencimiento
+                ? <span className="muted"> · Vence: {new Date(cuponActivo.fecha_vencimiento).toLocaleDateString('es-GT')}</span>
+                : null}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+              <button
+                type="button"
+                className="btn-outline"
+                style={{ fontSize: 12, padding: '4px 12px' }}
+                onClick={() => copiarCodigo(cuponActivo.codigo)}
+              >
+                {copiado === cuponActivo.codigo ? '✓ Copiado' : 'Copiar código'}
+              </button>
+              {p.usuarios?.telefono ? (
+                <a
+                  href={`sms:${p.usuarios.telefono}?body=Tu cupón MALL: ${cuponActivo.codigo} por ${money(cuponActivo.valor)}. Válido hasta ${new Date(cuponActivo.fecha_vencimiento || '').toLocaleDateString('es-GT')}.`}
+                  style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, border: '1.5px solid var(--mall-main)', color: 'var(--mall-main)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                >
+                  Enviar SMS
+                </a>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         {/* Barra de progreso del estado */}
         {!terminado ? (
@@ -125,7 +236,7 @@ export default function Pedidos() {
 
   return (
     <Navbar>
-      <PageHeader title="Pedidos de hoy" subtitle="Gestiona los pedidos a domicilio. El cupón se genera al marcar como entregado." />
+      <PageHeader title="Pedidos de hoy" subtitle="Gestiona los pedidos a domicilio. El cupón se genera al confirmar el pedido." />
       {error ? <div className="error">{error}</div> : null}
 
       {activos.length === 0 && terminados.length === 0 ? (

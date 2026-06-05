@@ -131,10 +131,13 @@ create table if not exists public.detalle_pedidos (
   created_at timestamptz not null default now()
 );
 
+-- Permitir cliente_id nulo para cupones de regalo sin cliente asignado
+alter table if exists public.cupones alter column cliente_id drop not null;
+
 create table if not exists public.cupones (
   id uuid primary key default gen_random_uuid(),
   codigo text not null unique,
-  cliente_id uuid not null references public.usuarios(id) on delete cascade,
+  cliente_id uuid references public.usuarios(id) on delete cascade,
   pedido_id uuid references public.pedidos(id) on delete set null,
   valor numeric(10,2) not null default 10 check (valor >= 0),
   estado text not null default 'activo' check (estado in ('activo', 'canjeado', 'vencido', 'cancelado')),
