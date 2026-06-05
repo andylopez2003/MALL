@@ -6,6 +6,17 @@ import { money } from '../utils/business.js'
 
 const CATEGORIAS = ['Granos', 'Lacteos', 'Bebidas', 'Snacks', 'Limpieza', 'Personal', 'Verduras', 'Carnes', 'Otros']
 
+const SKU_PREFIX = {
+  Granos: 'GR', Lacteos: 'LA', Bebidas: 'BE', Snacks: 'SN',
+  Limpieza: 'LI', Personal: 'PE', Verduras: 'VE', Carnes: 'CA', Otros: 'OT',
+}
+
+function generarSku(categoria) {
+  const prefix = SKU_PREFIX[categoria] || 'OT'
+  const num = String(Math.floor(Math.random() * 900) + 100)
+  return `${prefix}-${num}`
+}
+
 const emptyForm = {
   nombre: '',
   descripcion: '',
@@ -13,6 +24,7 @@ const emptyForm = {
   imagen_url: '',
   categoria: 'Otros',
   stock: 0,
+  sku: '',
   participa_promocion: false,
   activo: true,
 }
@@ -73,7 +85,7 @@ export default function Productos() {
 
   function openCreateModal() {
     setEditingProduct(null)
-    setForm(emptyForm)
+    setForm({ ...emptyForm, sku: generarSku('Otros') })
     setImagenFile(null)
     setPreviewUrl('')
     setError('')
@@ -89,6 +101,7 @@ export default function Productos() {
       imagen_url: producto.imagen_url || '',
       categoria: producto.categoria || 'Otros',
       stock: producto.stock ?? 0,
+      sku: producto.sku || generarSku(producto.categoria || 'Otros'),
       participa_promocion: Boolean(producto.participa_promocion),
       activo: producto.activo !== false,
     })
@@ -167,6 +180,7 @@ export default function Productos() {
         imagen_url: imagenUrl,
         precio: Number(form.precio),
         stock: Number(form.stock || 0),
+        sku: form.sku?.trim() || generarSku(form.categoria),
       }
 
       const request = editingProduct
@@ -265,6 +279,11 @@ export default function Productos() {
                   {producto.descripcion ? <p>{producto.descripcion}</p> : null}
                   <div className="product-meta">
                     <strong>{money(producto.precio)}</strong>
+                    {producto.sku ? (
+                      <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, background: '#1a1a1a', color: '#fff', borderRadius: 4, padding: '2px 7px', letterSpacing: 1 }}>
+                        {producto.sku}
+                      </span>
+                    ) : null}
                     <span className="badge-gray">{producto.categoria || 'Otros'}</span>
                     {producto.participa_promocion ? <span className="badge-yellow">Promo</span> : null}
                     <span className="badge-green">Stock {producto.stock ?? 0}</span>
@@ -327,9 +346,18 @@ export default function Productos() {
             </div>
             <label className="form-row">
               Categoria
-              <select className="input-field" value={form.categoria} onChange={(event) => setForm({ ...form, categoria: event.target.value })}>
+              <select className="input-field" value={form.categoria} onChange={(event) => setForm({ ...form, categoria: event.target.value, sku: generarSku(event.target.value) })}>
                 {CATEGORIAS.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
+            </label>
+            <label className="form-row">
+              Código SKU (para búsqueda en caja)
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="input-field" value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value.toUpperCase() })} placeholder="Ej: GR-042" style={{ fontFamily: 'monospace', letterSpacing: 1 }} />
+                <button type="button" className="btn-outline" style={{ flexShrink: 0, padding: '0 12px', fontSize: 12 }} onClick={() => setForm({ ...form, sku: generarSku(form.categoria) })}>
+                  Generar
+                </button>
+              </div>
             </label>
             <div className="checkbox-row">
               <label><input type="checkbox" checked={form.activo} onChange={(event) => setForm({ ...form, activo: event.target.checked })} /> Activo</label>

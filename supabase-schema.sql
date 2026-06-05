@@ -33,9 +33,13 @@ alter table public.usuarios alter column id set default gen_random_uuid();
 alter table public.usuarios drop constraint if exists usuarios_email_key;
 update public.usuarios set email = null where email = '';
 
+-- Agregar SKU a productos (codigo corto para busqueda rapida en caja)
+alter table if exists public.productos add column if not exists sku text unique;
+
 create table if not exists public.productos (
   id uuid primary key default gen_random_uuid(),
   nombre text not null,
+  sku text unique,
   descripcion text,
   precio numeric(10,2) not null default 0 check (precio >= 0),
   imagen_url text,
