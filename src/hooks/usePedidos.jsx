@@ -53,12 +53,20 @@ export function usePedidos() {
       await supabase.from('pedidos').update({ genera_cupon: false }).eq('id', pedido.id)
     }
 
-    // ── Si se CANCELA: restaurar el cupón que el cliente usó ─────────────
-    if (nuevoEstado === 'cancelado' && pedido.cupon_canjeado_id) {
-      await supabase
-        .from('cupones')
-        .update({ estado: 'activo', fecha_canje: null })
-        .eq('id', pedido.cupon_canjeado_id)
+    // ── Si se CANCELA: restaurar todos los cupones canjeados de este pedido ──
+    // Busca cupones que fueron canjeados aproximadamente al momento de crear el pedido
+    if (nuevoEstado === 'cancelado') {
+      const createdAt = pedido.created_at
+      if (createdAt) {
+        const desde = new Date(new Date(createdAt).getTime() - 60000).toISOString()
+        const hasta = new Date(new Date(createdAt).getTime() + 60000).toISOString()
+        await supabase
+          .from('cupones')
+          .update({ estado: 'activo', fecha_canje: null })
+          .gte('fecha_canje', desde)
+          .lte('fecha_canje', hasta)
+          .eq('estado', 'canjeado')
+      }
     }
   }
 
