@@ -7,6 +7,54 @@ import { calcularPuntosConConfig, usePuntos } from '../hooks/usePuntos.jsx'
 import { supabase } from '../supabase.js'
 import { money } from '../utils/business.js'
 
+function imprimirTicketTienda({ clienteNombre, clienteDPI, lineas, montoTotal, descuento, puntosUsados, puntosGanados, montoFinal, esCF }) {
+  const lineasHTML = lineas.map((l) => `
+    <div class="item-row">
+      <span class="item-name">${l.cantidad}&times; ${l.nombre}</span>
+      <span class="item-price">Q${Number(l.precio || 0).toFixed(2)}</span>
+      <span class="item-sub">Q${Number(l.subtotal || 0).toFixed(2)}</span>
+    </div>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><title>MALL - Compra</title><meta charset="UTF-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;max-width:360px;margin:0 auto;padding:14px;font-size:13px;color:#1a1a1a}
+  h1{font-size:26px;text-align:center;letter-spacing:3px;font-weight:900;margin-bottom:2px}
+  .sub{text-align:center;color:#888;font-size:11px;margin-bottom:14px}
+  hr{border:none;border-top:1px dashed #ccc;margin:10px 0}
+  .row{display:flex;justify-content:space-between;gap:8px;margin:3px 0;font-size:13px}
+  .label{color:#888}.val{text-align:right;font-weight:600;flex:1}
+  .items-title{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;color:#555}
+  .items-header{display:grid;grid-template-columns:1fr 55px 65px;gap:0 6px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;padding:4px 0;border-bottom:1px solid #e0e0e0;margin-bottom:4px}
+  .item-row{display:grid;grid-template-columns:1fr 55px 65px;gap:0 6px;padding:4px 0;border-bottom:1px dotted #eee;font-size:13px}
+  .item-name{font-weight:600}.item-price{text-align:right;color:#888;font-size:12px}.item-sub{text-align:right;font-weight:700}
+  .total-row{display:flex;justify-content:space-between;font-weight:900;font-size:16px;border-top:2px solid #000;padding-top:8px;margin-top:8px}
+  .descuento-row{display:flex;justify-content:space-between;font-size:13px;color:#1D9E75;font-weight:700;margin-top:4px}
+  .puntos-row{text-align:center;margin-top:10px;padding:8px;background:#f0faf6;border-radius:6px;font-size:12px;color:#1D9E75;font-weight:700}
+  .footer{text-align:center;font-size:10px;color:#bbb;margin-top:12px}
+  @media print{body{padding:0}}
+</style></head>
+<body>
+  <h1>MALL</h1>
+  <p class="sub">Compra en tienda &mdash; ${new Date().toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
+  <hr>
+  <div class="row"><span class="label">Cliente:</span><span class="val">${esCF ? 'Cliente Final (C/F)' : (clienteNombre || '&mdash;')}</span></div>
+  ${clienteDPI ? `<div class="row"><span class="label">DPI:</span><span class="val">${clienteDPI}</span></div>` : ''}
+  <hr>
+  <div class="items-title">Productos</div>
+  <div class="items-header"><span>Producto</span><span style="text-align:right">P/U</span><span style="text-align:right">Subtotal</span></div>
+  ${lineasHTML}
+  <div class="total-row"><span>SUBTOTAL</span><span>Q${Number(montoTotal || 0).toFixed(2)}</span></div>
+  ${descuento > 0 ? `<div class="descuento-row"><span>Descuento puntos (${puntosUsados} pts)</span><span>&minus;Q${Number(descuento || 0).toFixed(2)}</span></div>
+  <div class="total-row" style="font-size:18px"><span>TOTAL COBRADO</span><span>Q${Number(montoFinal || 0).toFixed(2)}</span></div>` : ''}
+  ${puntosGanados > 0 ? `<div class="puntos-row">&#11088; Gana ${puntosGanados} puntos en esta compra</div>` : ''}
+  <div class="footer">MALL &mdash; Gracias por tu compra</div>
+</body></html>`
+
+  const w = window.open('', '_blank', 'width=480,height=680')
+  if (w) { w.document.write(html); w.document.close(); w.focus(); window.setTimeout(() => { w.print(); w.close() }, 600) }
+}
+
 export default function RegistrarCompra() {
   const { profile } = useAuth()
   const { registrarCompra, getConfigPuntos } = usePuntos()
@@ -191,6 +239,19 @@ export default function RegistrarCompra() {
         montoTotal,
         adminId:     profile.id,
         puntosUsados: puntosAUsar,
+      })
+
+      // Imprimir ticket antes de limpiar el estado
+      imprimirTicketTienda({
+        clienteNombre: cliente?.nombre,
+        clienteDPI:    cliente?.dpi,
+        esCF,
+        lineas:        [...lineas],
+        montoTotal,
+        descuento:     result.descuento,
+        puntosUsados:  puntosAUsar,
+        puntosGanados: result.puntosGanados,
+        montoFinal:    result.montoFinal,
       })
 
       const partes = []

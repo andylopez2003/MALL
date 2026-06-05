@@ -16,58 +16,49 @@ const ESTADO_LABEL = {
 }
 
 const BOTON_SIGUIENTE = {
-  pendiente:  { label: 'Confirmar pedido',    siguiente: 'confirmado' },
-  confirmado: { label: 'Marcar preparando',   siguiente: 'preparando' },
-  preparando: { label: 'En camino',           siguiente: 'en_camino'  },
-  en_camino:  { label: 'Marcar entregado',    siguiente: 'entregado'  },
+  pendiente:  { label: 'Confirmar pedido',  siguiente: 'confirmado' },
+  confirmado: { label: 'Marcar preparando', siguiente: 'preparando' },
+  preparando: { label: 'En camino',         siguiente: 'en_camino'  },
+  en_camino:  { label: 'Marcar entregado',  siguiente: 'entregado'  },
 }
 
-function imprimirPedido(pedido) {
-  const cupon = pedido.cupones?.find((c) => c.estado === 'activo')
+// ── Imprimir factura ──────────────────────────────────────────────────────
+function imprimirFactura(pedido) {
   const items = pedido.detalle_pedidos || []
-
   const lineasHTML = items.length
     ? items.map((i) => `
-        <div class="row">
-          <span>${i.cantidad}&times; ${i.nombre_producto}</span>
-          <span>Q${Number(i.subtotal || 0).toFixed(2)}</span>
+        <div class="item-row">
+          <span class="item-name">${i.cantidad}&times; ${i.nombre_producto}</span>
+          <span class="item-price">Q${Number(i.precio_unitario || 0).toFixed(2)}</span>
+          <span class="item-sub">Q${Number(i.subtotal || 0).toFixed(2)}</span>
         </div>`).join('')
-    : '<div class="row muted"><span>Sin detalle de productos</span></div>'
+    : '<div class="muted-row">Sin detalle de productos</div>'
 
-  const cuponHTML = cupon ? `
-    <div class="cupon-box">
-      <div class="cupon-title">&#127903;&#65039; CUP&Oacute;N DE DESCUENTO</div>
-      <div class="cupon-code">${cupon.codigo}</div>
-      <div class="cupon-value">Q${Number(cupon.valor || 0).toFixed(2)} de descuento</div>
-      <div class="cupon-info">V&aacute;lido hasta: ${new Date(cupon.fecha_vencimiento || '').toLocaleDateString('es-GT')}</div>
-      <div class="cupon-info" style="margin-top:6px">Entregar al cliente junto con el pedido</div>
-    </div>` : ''
-
-  const html = `<!DOCTYPE html>
-<html><head><title>MALL - Pedido</title><meta charset="UTF-8">
+  const html = `<!DOCTYPE html><html><head><title>MALL - Factura</title><meta charset="UTF-8">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; max-width: 360px; margin: 0 auto; padding: 14px; font-size: 13px; color: #1a1a1a; }
-  h1 { font-size: 26px; text-align: center; letter-spacing: 3px; font-weight: 900; margin-bottom: 2px; }
-  .sub { text-align: center; color: #888; font-size: 11px; margin-bottom: 14px; }
-  hr { border: none; border-top: 1px dashed #ccc; margin: 10px 0; }
-  .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin: 3px 0; }
-  .label { color: #888; white-space: nowrap; }
-  .val { text-align: right; font-weight: 600; flex: 1; }
-  .items-title { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; color: #555; }
-  .item-row { display: flex; justify-content: space-between; margin: 4px 0; padding-bottom: 4px; border-bottom: 1px dotted #e5e5e5; }
-  .total-row { display: flex; justify-content: space-between; font-weight: 900; font-size: 16px; border-top: 2px solid #000; padding-top: 8px; margin-top: 8px; }
-  .cupon-box { border: 2px dashed #1D9E75; border-radius: 8px; padding: 14px; margin-top: 14px; text-align: center; }
-  .cupon-title { font-size: 11px; color: #1D9E75; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
-  .cupon-code { font-family: monospace; font-size: 24px; font-weight: 900; letter-spacing: 4px; color: #1a1a1a; }
-  .cupon-value { font-size: 18px; font-weight: 700; color: #1D9E75; margin-top: 6px; }
-  .cupon-info { font-size: 11px; color: #888; margin-top: 4px; }
-  .footer { text-align: center; font-size: 10px; color: #bbb; margin-top: 14px; }
-  @media print { body { padding: 0; } }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:16px;font-size:13px;color:#1a1a1a}
+  h1{font-size:28px;text-align:center;letter-spacing:3px;font-weight:900;margin-bottom:2px}
+  .sub{text-align:center;color:#888;font-size:11px;margin-bottom:14px}
+  hr{border:none;border-top:1px dashed #ccc;margin:10px 0}
+  .row{display:flex;justify-content:space-between;gap:8px;margin:3px 0;font-size:13px}
+  .label{color:#888;white-space:nowrap}.val{text-align:right;font-weight:600;flex:1}
+  .items-title{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;color:#555}
+  .items-header{display:grid;grid-template-columns:1fr 60px 70px;gap:0 6px;font-size:10px;font-weight:700;color:#888;text-transform:uppercase;padding:4px 0;border-bottom:1px solid #e0e0e0;margin-bottom:4px}
+  .item-row{display:grid;grid-template-columns:1fr 60px 70px;gap:0 6px;padding:4px 0;border-bottom:1px dotted #eee;align-items:start;font-size:13px}
+  .item-name{font-weight:600}.item-price{text-align:right;color:#888;font-size:12px}.item-sub{text-align:right;font-weight:700}
+  .muted-row{color:#888;font-size:12px;padding:6px 0}
+  .total-row{display:flex;justify-content:space-between;font-weight:900;font-size:17px;border-top:2px solid #000;padding-top:8px;margin-top:8px}
+  .footer{text-align:center;font-size:10px;color:#bbb;margin-top:14px}
+  .badge{display:inline-block;background:#1D9E75;color:white;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700}
+  @media print{body{padding:0}}
 </style></head>
 <body>
   <h1>MALL</h1>
-  <p class="sub">Pedido a domicilio &mdash; ${new Date().toLocaleDateString('es-GT')}</p>
+  <p class="sub">Factura de pedido a domicilio &mdash; ${new Date().toLocaleDateString('es-GT')}</p>
+  <div style="text-align:center;margin-bottom:12px">
+    <span class="badge">N&deg; ${pedido.id?.slice(0, 8).toUpperCase()}</span>
+  </div>
   <hr>
   <div class="row"><span class="label">Cliente:</span><span class="val">${pedido.usuarios?.nombre || '&mdash;'}</span></div>
   <div class="row"><span class="label">Tel&eacute;fono:</span><span class="val">${pedido.telefono_contacto || pedido.usuarios?.telefono || '&mdash;'}</span></div>
@@ -75,19 +66,54 @@ function imprimirPedido(pedido) {
   <div class="row"><span class="label">Horario:</span><span class="val">${pedido.hora_entrega_asignada || pedido.horario || '&mdash;'}</span></div>
   <hr>
   <div class="items-title">Productos solicitados</div>
+  <div class="items-header"><span>Producto</span><span style="text-align:right">P/U</span><span style="text-align:right">Subtotal</span></div>
   ${lineasHTML}
   <div class="total-row"><span>TOTAL</span><span>Q${Number(pedido.monto_total || 0).toFixed(2)}</span></div>
-  ${cuponHTML}
-  <div class="footer">MALL &mdash; Gracias por tu pedido &mdash; N&deg; ${pedido.id?.slice(0, 8).toUpperCase()}</div>
+  <div class="footer">MALL &mdash; Gracias por tu pedido</div>
 </body></html>`
 
   const w = window.open('', '_blank', 'width=520,height=750')
-  if (w) {
-    w.document.write(html)
-    w.document.close()
-    w.focus()
-    window.setTimeout(() => { w.print(); w.close() }, 600)
-  }
+  if (w) { w.document.write(html); w.document.close(); w.focus(); window.setTimeout(() => { w.print(); w.close() }, 600) }
+}
+
+// ── Imprimir cupones ──────────────────────────────────────────────────────
+function imprimirCupones(pedido) {
+  const cupones = (pedido.cupones || []).filter((c) => c.estado === 'activo')
+  if (cupones.length === 0) { window.alert('No hay cupones activos para imprimir.'); return }
+
+  const ticketsHTML = cupones.map((c, idx) => `
+    <div class="ticket">
+      <div class="ticket-header">&#127903;&#65039; Cup&oacute;n de Descuento MALL</div>
+      <div class="ticket-code">${c.codigo}</div>
+      <div class="ticket-value">Q${Number(c.valor || 0).toFixed(2)}</div>
+      <div class="ticket-info">V&aacute;lido hasta: ${new Date(c.fecha_vencimiento || '').toLocaleDateString('es-GT')}</div>
+      <div class="ticket-num">Cup&oacute;n ${idx + 1} de ${cupones.length}</div>
+      ${idx < cupones.length - 1 ? '<div class="cut">&mdash;&mdash;&mdash;&mdash; Recortar aqu&iacute; &mdash;&mdash;&mdash;&mdash;</div>' : ''}
+    </div>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><title>MALL - Cupones</title><meta charset="UTF-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:16px;font-size:13px}
+  h1{font-size:20px;text-align:center;font-weight:900;letter-spacing:2px;margin-bottom:4px}
+  .sub{text-align:center;color:#888;font-size:11px;margin-bottom:16px}
+  .ticket{border:2px dashed #1D9E75;border-radius:10px;padding:16px;text-align:center;margin-bottom:10px}
+  .ticket-header{font-size:11px;color:#1D9E75;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px}
+  .ticket-code{font-family:monospace;font-size:26px;font-weight:900;letter-spacing:4px;color:#1a1a1a;margin-bottom:6px}
+  .ticket-value{font-size:22px;font-weight:900;color:#1D9E75;margin-bottom:4px}
+  .ticket-info{font-size:11px;color:#888;margin-bottom:4px}
+  .ticket-num{font-size:10px;color:#bbb}
+  .cut{font-size:11px;color:#ccc;margin-top:10px;letter-spacing:1px}
+  @media print{body{padding:0}}
+</style></head>
+<body>
+  <h1>MALL</h1>
+  <p class="sub">Cupones generados &mdash; Pedido ${pedido.id?.slice(0, 8).toUpperCase()} &mdash; Cliente: ${pedido.usuarios?.nombre || '&mdash;'}</p>
+  ${ticketsHTML}
+</body></html>`
+
+  const w = window.open('', '_blank', 'width=520,height=750')
+  if (w) { w.document.write(html); w.document.close(); w.focus(); window.setTimeout(() => { w.print(); w.close() }, 600) }
 }
 
 export default function Pedidos() {
@@ -116,12 +142,7 @@ export default function Pedidos() {
     setCambiando(pedido.id + siguiente)
     await cambiarEstado(pedido, siguiente)
     setCambiando(null)
-    const nuevos = await loadData()
-
-    if (siguiente === 'confirmado') {
-      const actualizado = nuevos.find((p) => p.id === pedido.id)
-      if (actualizado) imprimirPedido(actualizado)
-    }
+    loadData()
   }
 
   async function cancelar(pedido) {
@@ -145,33 +166,19 @@ export default function Pedidos() {
     if (!items?.length) return null
     return (
       <div style={{ border: '1px solid #e5e9e6', borderRadius: 8, overflow: 'hidden', fontSize: 13 }}>
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr auto auto auto',
-          gap: '0 10px', padding: '6px 10px',
-          background: '#f7f9f7', fontWeight: 700, fontSize: 11,
-          color: 'var(--mall-muted)', textTransform: 'uppercase', letterSpacing: 0.5,
-          borderBottom: '1px solid #e5e9e6',
-        }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '0 10px', padding: '6px 10px', background: '#f7f9f7', fontWeight: 700, fontSize: 11, color: 'var(--mall-muted)', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #e5e9e6' }}>
           <span>Producto</span><span style={{ textAlign: 'right' }}>Cant.</span>
           <span style={{ textAlign: 'right' }}>P/U</span><span style={{ textAlign: 'right' }}>Total</span>
         </div>
         {items.map((item, idx) => (
-          <div key={idx} style={{
-            display: 'grid', gridTemplateColumns: '1fr auto auto auto',
-            gap: '0 10px', padding: '7px 10px', alignItems: 'center',
-            borderBottom: idx < items.length - 1 ? '1px solid #f0f2f0' : 'none',
-          }}>
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '0 10px', padding: '7px 10px', alignItems: 'center', borderBottom: idx < items.length - 1 ? '1px solid #f0f2f0' : 'none' }}>
             <span style={{ fontWeight: 600 }}>{item.nombre_producto}</span>
             <span style={{ textAlign: 'right', color: 'var(--mall-muted)' }}>×{item.cantidad}</span>
             <span style={{ textAlign: 'right', color: 'var(--mall-muted)' }}>{money(item.precio_unitario)}</span>
             <span style={{ textAlign: 'right', fontWeight: 700 }}>{money(item.subtotal)}</span>
           </div>
         ))}
-        <div style={{
-          display: 'flex', justifyContent: 'space-between',
-          padding: '8px 10px', background: '#f0f8f4',
-          borderTop: '2px solid #c7e8d8', fontWeight: 800, fontSize: 14,
-        }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', background: '#f0f8f4', borderTop: '2px solid #c7e8d8', fontWeight: 800, fontSize: 14 }}>
           <span>Total</span><span className="price">{money(montoTotal)}</span>
         </div>
       </div>
@@ -179,14 +186,16 @@ export default function Pedidos() {
   }
 
   function PedidoCard({ p }) {
-    const estadoInfo = ESTADO_LABEL[p.estado] || ESTADO_LABEL.pendiente
+    const estadoInfo   = ESTADO_LABEL[p.estado] || ESTADO_LABEL.pendiente
     const siguienteInfo = BOTON_SIGUIENTE[p.estado]
-    const idxActual = FLUJO.indexOf(p.estado)
-    const terminado = p.estado === 'entregado' || p.estado === 'cancelado'
-    const cuponActivo = p.cupones?.find((c) => c.estado === 'activo')
+    const idxActual    = FLUJO.indexOf(p.estado)
+    const terminado    = p.estado === 'entregado' || p.estado === 'cancelado'
+    const confirmado   = p.estado !== 'pendiente' && p.estado !== 'cancelado'
+    const cuponesActivos = (p.cupones || []).filter((c) => c.estado === 'activo')
 
     return (
       <div className="card" style={{ display: 'grid', gap: 12 }}>
+        {/* Cabecera */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
           <div>
             <strong style={{ fontSize: 15 }}>{p.usuarios?.nombre || 'Cliente sin nombre'}</strong>
@@ -197,47 +206,64 @@ export default function Pedidos() {
           </span>
         </div>
 
+        {/* Info */}
         <div style={{ display: 'grid', gap: 4, fontSize: 13 }}>
           <div><span className="muted">Dirección: </span>{p.direccion_entrega}</div>
           <div><span className="muted">Horario: </span><strong>{p.hora_entrega_asignada || p.horario || '—'}</strong></div>
           {p.genera_cupon && p.estado === 'pendiente'
-            ? <div style={{ fontSize: 12, color: 'var(--mall-accent)' }}>🎟️ Generará cupón al confirmar</div>
+            ? <div style={{ fontSize: 12, color: 'var(--mall-accent)' }}>🎟️ Generará cupones al confirmar</div>
             : null}
         </div>
 
+        {/* Factura */}
         <Factura items={p.detalle_pedidos} montoTotal={p.monto_total} />
 
-        {cuponActivo ? (
-          <div style={{ background: '#dff7ed', border: '1.5px dashed var(--mall-main)', borderRadius: 10, padding: '12px 14px', display: 'grid', gap: 6 }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--mall-main)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              🎟️ Cupón generado — entregar al cliente
-            </div>
-            <div style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 900, letterSpacing: 3, color: 'var(--mall-dark)' }}>
-              {cuponActivo.codigo}
-            </div>
-            <div style={{ fontSize: 13 }}>
-              Valor: <strong className="price">{money(cuponActivo.valor)}</strong>
-              {cuponActivo.fecha_vencimiento
-                ? <span className="muted"> · Vence: {new Date(cuponActivo.fecha_vencimiento).toLocaleDateString('es-GT')}</span>
-                : null}
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-              <button type="button" className="btn-outline" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => copiarCodigo(cuponActivo.codigo)}>
-                {copiado === cuponActivo.codigo ? '✓ Copiado' : 'Copiar código'}
+        {/* Botones de impresión — visibles desde que se confirma */}
+        {confirmado ? (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn-outline" style={{ fontSize: 13, flex: 1 }} onClick={() => imprimirFactura(p)}>
+              🖨️ Imprimir factura
+            </button>
+            {cuponesActivos.length > 0 ? (
+              <button type="button" className="btn-outline" style={{ fontSize: 13, flex: 1 }} onClick={() => imprimirCupones(p)}>
+                🎟️ Imprimir cupones ({cuponesActivos.length})
               </button>
-              <button type="button" className="btn-outline" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => imprimirPedido(p)}>
-                Reimprimir
-              </button>
-              {p.usuarios?.telefono ? (
-                <a href={`sms:${p.usuarios.telefono}?body=Tu cupón MALL: ${cuponActivo.codigo} por ${money(cuponActivo.valor)}. Válido hasta ${new Date(cuponActivo.fecha_vencimiento || '').toLocaleDateString('es-GT')}.`}
-                  style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, border: '1.5px solid var(--mall-main)', color: 'var(--mall-main)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-                  Enviar SMS
-                </a>
-              ) : null}
-            </div>
+            ) : null}
           </div>
         ) : null}
 
+        {/* Cupones generados — mostrar códigos */}
+        {cuponesActivos.length > 0 ? (
+          <div style={{ background: '#dff7ed', border: '1.5px dashed var(--mall-main)', borderRadius: 10, padding: '12px 14px', display: 'grid', gap: 8 }}>
+            <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--mall-main)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              🎟️ {cuponesActivos.length === 1 ? 'Cupón generado' : `${cuponesActivos.length} cupones generados`} — entregar al cliente
+            </div>
+            {cuponesActivos.map((c, idx) => (
+              <div key={c.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 900, letterSpacing: 3, color: 'var(--mall-dark)', flex: 1 }}>
+                  {c.codigo}
+                </span>
+                <span className="price" style={{ fontSize: 14, fontWeight: 700 }}>{money(c.valor)}</span>
+                <button type="button" className="btn-outline" style={{ fontSize: 11, padding: '3px 10px' }} onClick={() => copiarCodigo(c.codigo)}>
+                  {copiado === c.codigo ? '✓' : 'Copiar'}
+                </button>
+                {p.usuarios?.telefono ? (
+                  <a href={`sms:${p.usuarios.telefono}?body=Cupón ${idx + 1}/${cuponesActivos.length} MALL: ${c.codigo} por ${money(c.valor)}. Vence: ${new Date(c.fecha_vencimiento || '').toLocaleDateString('es-GT')}.`}
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--mall-main)', color: 'var(--mall-main)', textDecoration: 'none' }}>
+                    SMS
+                  </a>
+                ) : null}
+              </div>
+            ))}
+            {cuponesActivos[0]?.fecha_vencimiento ? (
+              <div className="muted" style={{ fontSize: 11 }}>
+                Vencen: {new Date(cuponesActivos[0].fecha_vencimiento).toLocaleDateString('es-GT')}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Barra de progreso */}
         {!terminado ? (
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             {FLUJO.slice(0, -1).map((e, idx) => (
@@ -246,6 +272,7 @@ export default function Pedidos() {
           </div>
         ) : null}
 
+        {/* Botones de acción */}
         {!terminado ? (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {siguienteInfo ? (
@@ -264,7 +291,7 @@ export default function Pedidos() {
 
   return (
     <Navbar>
-      <PageHeader title="Pedidos de hoy" subtitle="Al confirmar un pedido se imprime la factura y el cupón si aplica." />
+      <PageHeader title="Pedidos de hoy" subtitle="Confirma pedidos y usa los botones de impresión para la factura y cupones." />
       {error ? <div className="error">{error}</div> : null}
 
       {activos.length === 0 && terminados.length === 0 ? (

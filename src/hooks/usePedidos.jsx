@@ -21,43 +21,35 @@ export function usePedidos() {
       .eq('id', pedido.id)
     if (error) throw error
 
-    // ── Al CONFIRMAR: generar cupón si el pedido califica ────────────────
-    // El cupón se genera aquí para que el admin lo pueda entregar físicamente
+    // ── Al CONFIRMAR: generar N cupones según floor(total/umbral) ──────────
     if (nuevoEstado === 'confirmado' && pedido.genera_cupon && pedido.cliente_id) {
       const { data: configData } = await supabase
         .from('configuracion')
         .select('clave, valor')
-        .in('clave', ['valor_cupon_domicilio', 'dias_vencimiento_cupon', 'umbrales_cupones_domicilio'])
+        .in('clave', ['valor_cupon_domicilio', 'dias_vencimiento_cupon', 'monto_cupon_domicilio'])
       const config = Object.fromEntries((configData || []).map((i) => [i.clave, i.valor]))
-      const dias = Number(config.dias_vencimiento_cupon || 14)
 
-      // Calcular valor del cupón según niveles configurados
-      let valor = Number(config.valor_cupon_domicilio || 10)
-      try {
-        const umbrales = typeof config.umbrales_cupones_domicilio === 'string'
-          ? JSON.parse(config.umbrales_cupones_domicilio)
-          : (config.umbrales_cupones_domicilio || null)
-        if (Array.isArray(umbrales) && umbrales.length > 0) {
-          const montoTotalPedido = Number(pedido.monto_total || 0)
-          const nivel = umbrales.reduce((acc, entry) => {
-            const [min, val] = Array.isArray(entry) ? entry : [entry.monto, entry.valor]
-            return montoTotalPedido >= Number(min) ? Number(val) : acc
-          }, 0)
-          if (nivel > 0) valor = nivel
-        }
-      } catch (_) { /* usar valor por defecto */ }
-      const codigo = `MALL-${Date.now().toString(36).toUpperCase()}`
-      const vence  = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toISOString()
+      const umbral     = Number(config.monto_cupon_domicilio  || 150)
+      const valorCupon = Number(config.valor_cupon_domicilio  || 10)
+      const dias       = Number(config.dias_vencimiento_cupon || 14)
+      const vence      = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toISOString()
 
-      await supabase.from('cupones').insert({
-        codigo,
-        cliente_id: pedido.cliente_id,
-        pedido_id: pedido.id,
-        valor,
-        estado: 'activo',
-        fecha_emision: new Date().toISOString(),
-        fecha_vencimiento: vence,
-      })
+      // Número de cupones = cuántas veces el total supera el umbral
+      const numCupones = Math.floor(Number(pedido.monto_total || 0) / umbral)
+
+      for (let i = 0; i < numCupones; i++) {
+        const codigo = `MALL-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+        await supabase.from('cupones').insert({
+          codigo,
+          cliente_id: pedido.cliente_id,
+          pedido_id:  pedido.id,
+          valor:      valorCupon,
+          estado:     'activo',
+          fecha_emision: new Date().toISOString(),
+          fecha_vencimiento: vence,
+        })
+      }
+
       await supabase.from('pedidos').update({ genera_cupon: false }).eq('id', pedido.id)
     }
 
