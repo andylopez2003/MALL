@@ -27,10 +27,25 @@ export function usePedidos() {
       const { data: configData } = await supabase
         .from('configuracion')
         .select('clave, valor')
-        .in('clave', ['valor_cupon_domicilio', 'dias_vencimiento_cupon'])
+        .in('clave', ['valor_cupon_domicilio', 'dias_vencimiento_cupon', 'umbrales_cupones_domicilio'])
       const config = Object.fromEntries((configData || []).map((i) => [i.clave, i.valor]))
-      const valor = Number(config.valor_cupon_domicilio  || 10)
-      const dias  = Number(config.dias_vencimiento_cupon || 14)
+      const dias = Number(config.dias_vencimiento_cupon || 14)
+
+      // Calcular valor del cupón según niveles configurados
+      let valor = Number(config.valor_cupon_domicilio || 10)
+      try {
+        const umbrales = typeof config.umbrales_cupones_domicilio === 'string'
+          ? JSON.parse(config.umbrales_cupones_domicilio)
+          : (config.umbrales_cupones_domicilio || null)
+        if (Array.isArray(umbrales) && umbrales.length > 0) {
+          const montoTotalPedido = Number(pedido.monto_total || 0)
+          const nivel = umbrales.reduce((acc, entry) => {
+            const [min, val] = Array.isArray(entry) ? entry : [entry.monto, entry.valor]
+            return montoTotalPedido >= Number(min) ? Number(val) : acc
+          }, 0)
+          if (nivel > 0) valor = nivel
+        }
+      } catch (_) { /* usar valor por defecto */ }
       const codigo = `MALL-${Date.now().toString(36).toUpperCase()}`
       const vence  = new Date(Date.now() + dias * 24 * 60 * 60 * 1000).toISOString()
 

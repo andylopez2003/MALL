@@ -78,9 +78,12 @@ create table if not exists public.promociones (
   check (fecha_fin >= fecha_inicio)
 );
 
+-- Permitir ventas sin cliente (C/F = Cliente Final)
+alter table if exists public.compras alter column cliente_id drop not null;
+
 create table if not exists public.compras (
   id uuid primary key default gen_random_uuid(),
-  cliente_id uuid not null references public.usuarios(id) on delete restrict,
+  cliente_id uuid references public.usuarios(id) on delete restrict,
   monto_total numeric(10,2) not null default 0 check (monto_total >= 0),
   puntos_ganados integer not null default 0 check (puntos_ganados >= 0),
   admin_id uuid references public.usuarios(id) on delete set null,
@@ -220,11 +223,12 @@ create index if not exists cupones_estado_idx on public.cupones(estado);
 insert into public.configuracion (clave, valor, descripcion)
 values
   ('monto_minimo_domicilio', '20', 'Monto minimo para pedidos a domicilio'),
-  ('monto_cupon_domicilio', '150', 'Monto minimo para generar cupon de domicilio'),
-  ('valor_cupon_domicilio', '10', 'Valor del cupon de domicilio'),
+  ('monto_cupon_domicilio', '150', 'Monto minimo para generar cupon de domicilio (legado)'),
+  ('valor_cupon_domicilio', '10', 'Valor del cupon de domicilio (legado)'),
   ('dias_vencimiento_cupon', '14', 'Dias de vigencia del cupon'),
   ('max_pedidos_jornada', '6', 'Maximo de pedidos por jornada'),
-  ('slots_entrega', '["13:00-15:00","17:00-19:00"]', 'Jornadas de entrega disponibles')
+  ('slots_entrega', '["13:00-15:00","17:00-19:00"]', 'Jornadas de entrega disponibles'),
+  ('umbrales_cupones_domicilio', '[[150,10],[300,20],[450,30]]', 'Niveles de cupon por monto de pedido domicilio')
 on conflict (clave) do update
 set valor = excluded.valor,
     descripcion = excluded.descripcion,

@@ -22,47 +22,52 @@ export function calcularPuntosConConfig(monto, config) {
 export function usePuntos() {
   async function registrarCompra({ clienteId, montoTotal, adminId, puntosUsados = 0 }) {
     const config = await getConfigPuntos()
-    const montoBase    = Number(montoTotal || 0)
-    const descuento    = Math.min(Number(puntosUsados || 0) * config.valorPunto, montoBase)
-    const montoFinal   = montoBase - descuento
-    const puntosGanados = calcularPuntosConConfig(montoFinal, config)
+    const montoBase     = Number(montoTotal || 0)
+    // Los puntos se ganan sobre el monto bruto completo (antes del descuento)
+    const puntosGanados = calcularPuntosConConfig(montoBase, config)
+    const descuento     = Math.min(Number(puntosUsados || 0) * config.valorPunto, montoBase)
+    const montoFinal    = montoBase - descuento
 
     const { data: compra, error } = await supabase
       .from('compras')
-      .insert({ cliente_id: clienteId, monto_total: montoFinal, puntos_ganados: puntosGanados, admin_id: adminId })
+      .insert({ cliente_id: clienteId || null, monto_total: montoFinal, puntos_ganados: puntosGanados, admin_id: adminId })
       .select()
       .single()
     if (error) throw error
 
-    const { data: saldoActual } = await supabase.from('puntos').select('*').eq('cliente_id', clienteId).maybeSingle()
-    const saldoPrevio     = Number(saldoActual?.saldo        || 0)
-    const totalGanadoPrev = Number(saldoActual?.total_ganado  || 0)
-    const totalCanjeadoPrev = Number(saldoActual?.total_canjeado || 0)
+    // Solo actualizar puntos si hay cliente
+    if (clienteId) {
+      const { data: saldoActual } = await supabase.from('puntos').select('*').eq('cliente_id', clienteId).maybeSingle()
+      const saldoPrevio          = Number(saldoActual?.saldo          || 0)
+      const totalGanadoPrev      = Number(saldoActual?.total_ganado   || 0)
+      const totalCanjeadoPrev    = Number(saldoActual?.total_canjeado || 0)
 
-    // Deducir puntos usados, luego sumar ganados
-    const nuevoSaldo = Math.max(saldoPrevio - Number(puntosUsados || 0), 0) + puntosGanados
+      // Saldo = (previo + nuevos ganados) - usados (nunca negativo)
+      const totalAntesDePago = saldoPrevio + puntosGanados
+      const nuevoSaldo       = Math.max(totalAntesDePago - Number(puntosUsados || 0), 0)
 
-    await supabase.from('puntos').upsert({
-      cliente_id: clienteId,
-      saldo: nuevoSaldo,
-      total_ganado:   totalGanadoPrev + puntosGanados,
-      total_canjeado: totalCanjeadoPrev + Number(puntosUsados || 0),
-    }, { onConflict: 'cliente_id' })
+      await supabase.from('puntos').upsert({
+        cliente_id:     clienteId,
+        saldo:          nuevoSaldo,
+        total_ganado:   totalGanadoPrev + puntosGanados,
+        total_canjeado: totalCanjeadoPrev + Number(puntosUsados || 0),
+      }, { onConflict: 'cliente_id' })
 
-    if (puntosUsados > 0) {
-      await supabase.from('movimientos_puntos').insert({
-        cliente_id: clienteId, tipo: 'canjeado', monto: puntosUsados,
-        descripcion: `Descuento de Q${descuento.toFixed(2)} aplicado en compra`,
-        compra_id: compra.id, admin_id: adminId,
-      })
-    }
+      if (puntosUsados > 0) {
+        await supabase.from('movimientos_puntos').insert({
+          cliente_id: clienteId, tipo: 'canjeado', monto: puntosUsados,
+          descripcion: `Descuento de Q${descuento.toFixed(2)} en compra en tienda`,
+          compra_id: compra.id, admin_id: adminId,
+        })
+      }
 
-    if (puntosGanados > 0) {
-      await supabase.from('movimientos_puntos').insert({
-        cliente_id: clienteId, tipo: 'ganado', monto: puntosGanados,
-        descripcion: `Compra en tienda por Q${montoFinal.toFixed(2)}`,
-        compra_id: compra.id, admin_id: adminId,
-      })
+      if (puntosGanados > 0) {
+        await supabase.from('movimientos_puntos').insert({
+          cliente_id: clienteId, tipo: 'ganado', monto: puntosGanados,
+          descripcion: `Compra en tienda por Q${montoBase.toFixed(2)}`,
+          compra_id: compra.id, admin_id: adminId,
+        })
+      }
     }
 
     return { compra, puntosGanados, descuento, montoFinal }
@@ -74,7 +79,7 @@ export function usePuntos() {
     if (Number(saldoActual?.saldo || 0) < Number(monto)) throw new Error('Saldo insuficiente.')
 
     await supabase.from('puntos').update({
-      saldo: Number(saldoActual.saldo) - Number(monto),
+      saldo:          Number(saldoActual.saldo)          - Number(monto),
       total_canjeado: Number(saldoActual.total_canjeado || 0) + Number(monto),
     }).eq('cliente_id', clienteId)
 
