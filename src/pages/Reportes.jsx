@@ -57,7 +57,7 @@ export default function Reportes() {
         supabase.from('pedidos').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('movimientos_puntos').select('*, usuarios(nombre, dpi)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('detalle_pedidos').select('nombre_producto, cantidad, precio_unitario, subtotal, pedidos!inner(created_at)').gte('pedidos.created_at', range.start).lte('pedidos.created_at', range.end),
-        supabase.from('cupones').select('*, usuarios(nombre, dpi), pedidos!pedido_id(id)').gte('fecha_emision', range.start).lte('fecha_emision', range.end).order('fecha_emision', { ascending: false }),
+        supabase.from('cupones').select('*, usuarios(nombre, dpi, telefono), pedidos!pedido_id(id, monto_total)').gte('fecha_emision', range.start).lte('fecha_emision', range.end).order('fecha_emision', { ascending: false }),
       ])
 
       const productosAgrupados = Object.values((detalles.data || []).reduce((acc, d) => {
@@ -103,7 +103,7 @@ export default function Reportes() {
   )
 
   const cuponesVisisbles = data.cupones.filter((c) => {
-    const matchQ = !q || c.codigo?.includes(q.toUpperCase()) || c.usuarios?.nombre?.toLowerCase().includes(q) || c.usuarios?.dpi?.includes(q)
+    const matchQ = !q || c.codigo?.includes(q.toUpperCase()) || c.usuarios?.nombre?.toLowerCase().includes(q) || c.usuarios?.dpi?.includes(q) || c.usuarios?.telefono?.includes(q) || (c.pedidos?.id && c.pedidos.id.slice(0, 8).toLowerCase().includes(q))
     const matchFiltro = filtroCupon === 'todos' || c.estado === filtroCupon
     return matchQ && matchFiltro
   })
@@ -157,7 +157,7 @@ export default function Reportes() {
           placeholder={
             tab === 'compras'   ? 'Buscar por nombre, DPI o teléfono...' :
             tab === 'pedidos'   ? 'Buscar por nombre, DPI, teléfono o N° pedido...' :
-            tab === 'cupones'   ? 'Buscar por código, nombre o DPI...' :
+            tab === 'cupones'   ? 'Buscar por código, nombre, DPI, teléfono o N° pedido...' :
             tab === 'productos' ? 'Buscar producto...' :
             'Buscar por nombre o DPI...'
           }
@@ -302,26 +302,32 @@ export default function Reportes() {
               <tr>
                 <th>Fecha emisión</th>
                 <th>Código</th>
-                <th style={{ textAlign: 'right' }}>Valor</th>
+                <th style={{ textAlign: 'right' }}>Valor cupón</th>
                 <th>Cliente</th>
+                <th>Teléfono</th>
                 <th>DPI</th>
                 <th>N° Pedido</th>
+                <th style={{ textAlign: 'right' }}>Gasto pedido</th>
                 <th>Estado</th>
                 <th>Vence</th>
               </tr>
             </thead>
             <tbody>
               {cuponesVisisbles.length === 0 ? (
-                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
+                <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
               ) : cuponesVisisbles.map((c) => (
                 <tr key={c.id}>
                   <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(c.fecha_emision)}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>{c.codigo}</td>
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.valor)}</td>
                   <td><strong>{c.usuarios?.nombre || '—'}</strong></td>
+                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.telefono || '—'}</td>
                   <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.dpi || '—'}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
                     {c.pedidos?.id ? c.pedidos.id.slice(0, 8).toUpperCase() : '—'}
+                  </td>
+                  <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                    {c.pedidos?.monto_total ? money(c.pedidos.monto_total) : '—'}
                   </td>
                   <td><Badge text={c.estado} /></td>
                   <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.fecha_vencimiento ? new Date(c.fecha_vencimiento).toLocaleDateString('es-GT') : '—'}</td>
@@ -333,7 +339,7 @@ export default function Reportes() {
                 <tr style={{ fontWeight: 900, background: '#f0faf6' }}>
                   <td colSpan={2}>Total</td>
                   <td style={{ textAlign: 'right' }}>{money(cuponesVisisbles.reduce((s, c) => s + Number(c.valor || 0), 0))}</td>
-                  <td colSpan={5} style={{ fontSize: 12, color: 'var(--mall-muted)' }}>
+                  <td colSpan={7} style={{ fontSize: 12, color: 'var(--mall-muted)' }}>
                     Activos: {cuponesVisisbles.filter(c => c.estado === 'activo').length} · Canjeados: {cuponesVisisbles.filter(c => c.estado === 'canjeado').length}
                   </td>
                 </tr>
