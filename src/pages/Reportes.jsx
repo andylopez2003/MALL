@@ -47,6 +47,10 @@ export default function Reportes() {
   const [loading, setLoading] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [facturaAbierta, setFacturaAbierta] = useState(null)
+  const [cupones, setCupones] = useState([])
+  const [loadingCupones, setLoadingCupones] = useState(false)
+  const [busquedaCupon, setBusquedaCupon] = useState('')
+  const [filtroCuponEstado, setFiltroCuponEstado] = useState('todos')
 
   const range = useMemo(() => getRange(period, customStart, customEnd), [period, customStart, customEnd])
 
@@ -54,14 +58,12 @@ export default function Reportes() {
     async function load() {
       setLoading(true)
       setBusqueda('')
-      const [compras, pedidos, movimientos, detalles, cuponesRes] = await Promise.all([
+      const [compras, pedidos, movimientos, detalles] = await Promise.all([
         supabase.from('compras').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('pedidos').select('*, usuarios(nombre, dpi, telefono), detalle_pedidos(nombre_producto, cantidad, precio_unitario, subtotal)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('movimientos_puntos').select('*, usuarios(nombre, dpi)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('detalle_pedidos').select('nombre_producto, cantidad, precio_unitario, subtotal, pedidos!inner(created_at)').gte('pedidos.created_at', range.start).lte('pedidos.created_at', range.end),
-        supabase.from('cupones').select('*, usuarios(nombre, dpi, telefono)').gte('fecha_emision', range.start).lte('fecha_emision', range.end).order('fecha_emision', { ascending: false }),
       ])
-
       const productosAgrupados = Object.values((detalles.data || []).reduce((acc, d) => {
         const k = d.nombre_producto
         acc[k] ||= { nombre: k, cantidad: 0, ingresos: 0 }
@@ -69,28 +71,39 @@ export default function Reportes() {
         acc[k].ingresos += Number(d.subtotal || 0)
         return acc
       }, {})).sort((a, b) => b.cantidad - a.cantidad)
-
-      // Obtener monto_total de los pedidos relacionados a cupones (sin depender de FK join)
-      const cuponesData = cuponesRes.data || []
-      const pedidoIds = [...new Set(cuponesData.filter((c) => c.pedido_id).map((c) => c.pedido_id))]
-      let pedidoMontos = {}
-      if (pedidoIds.length > 0) {
-        const { data: montosData } = await supabase.from('pedidos').select('id, monto_total').in('id', pedidoIds)
-        if (montosData) pedidoMontos = Object.fromEntries(montosData.map((p) => [p.id, p.monto_total]))
-      }
-      const cupones = cuponesData.map((c) => ({ ...c, pedido_monto: c.pedido_id ? pedidoMontos[c.pedido_id] ?? null : null }))
-
       setData({
         compras: compras.data || [],
         pedidos: pedidos.data || [],
         movimientos: movimientos.data || [],
         productos: productosAgrupados,
-        cupones,
       })
       setLoading(false)
     }
     load()
   }, [range])
+
+  // Cupones: carga independiente del filtro de periodo — muestra todos
+  useEffect(() => {
+    async function loadCupones() {
+      setLoadingCupones(true)
+      const { data: cuponesData } = await supabase
+        .from('cupones')
+        .select('*, usuarios(nombre, telefono, dpi)')
+        .order('fecha_emision', { ascending: false })
+        .limit(500)
+
+      const rows = cuponesData || []
+      const pedidoIds = [...new Set(rows.filter((c) => c.pedido_id).map((c) => c.pedido_id))]
+      let pedidoMontos = {}
+      if (pedidoIds.length > 0) {
+        const { data: montosData } = await supabase.from('pedidos').select('id, monto_total').in('id', pedidoIds)
+        if (montosData) pedidoMontos = Object.fromEntries(montosData.map((p) => [p.id, p.monto_total]))
+      }
+      setCupones(rows.map((c) => ({ ...c, pedido_monto: c.pedido_id ? (pedidoMontos[c.pedido_id] ?? null) : null })))
+      setLoadingCupones(false)
+    }
+    loadCupones()
+  }, [])
 
   const totalTienda     = data.compras.reduce((s, r) => s + Number(r.monto_total || 0), 0)
   const totalDomicilio  = data.pedidos.filter(p => p.estado !== 'cancelado').reduce((s, r) => s + Number(r.monto_total || 0), 0)
@@ -114,11 +127,11 @@ export default function Reportes() {
     !q || p.nombre.toLowerCase().includes(q)
   )
 
-  const cuponesVisisbles = data.cupones.filter((c) => {
-    const matchQ = !q || c.codigo?.includes(q.toUpperCase()) || c.usuarios?.nombre?.toLowerCase().includes(q) || c.usuarios?.dpi?.includes(q) || c.usuarios?.telefono?.includes(q) || (c.pedido_id && c.pedido_id.slice(0, 8).toLowerCase().includes(q))
-    const matchFiltro = filtroCupon === 'todos' || c.estado === filtroCupon
-    const matchOrigen = origenCupon === 'todos' || (origenCupon === 'domicilio' ? !!c.pedido_id : !c.pedido_id)
-    return matchQ && matchFiltro && matchOrigen
+  const qc = busquedaCupon.toLowerCase()
+  const cuponesVisibles = cupones.filter((c) => {
+    const matchQ = !qc || c.codigo?.toLowerCase().includes(qc) || c.usuarios?.nombre?.toLowerCase().includes(qc) || c.usuarios?.telefono?.includes(qc) || c.usuarios?.dpi?.includes(qc) || (c.pedido_id && c.pedido_id.slice(0, 8).toLowerCase().includes(qc))
+    const matchEstado = filtroCuponEstado === 'todos' || c.estado === filtroCuponEstado
+    return matchQ && matchEstado
   })
 
   const TABS = [
@@ -126,7 +139,7 @@ export default function Reportes() {
     { id: 'pedidos',   label: `Pedidos domicilio (${data.pedidos.length})` },
     { id: 'puntos',    label: `Movimientos puntos (${data.movimientos.length})` },
     { id: 'productos', label: `Productos vendidos (${data.productos.length})` },
-    { id: 'cupones',   label: `Cupones (${data.cupones.length})` },
+    { id: 'cupones',   label: `Cupones (${cupones.length})` },
   ]
 
   return (
@@ -163,35 +176,23 @@ export default function Reportes() {
         ))}
       </div>
 
-      {/* Buscador + filtro estado cupones */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <input
-          className="input-field"
-          placeholder={
-            tab === 'compras'   ? 'Buscar por nombre, DPI o teléfono...' :
-            tab === 'pedidos'   ? 'Buscar por nombre, DPI, teléfono o N° pedido...' :
-            tab === 'cupones'   ? 'Buscar por código, nombre, DPI, teléfono o N° pedido...' :
-            tab === 'productos' ? 'Buscar producto...' :
-            'Buscar por nombre o DPI...'
-          }
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          style={{ maxWidth: 340 }}
-        />
-        {tab === 'cupones' ? (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {[['todos','Todos'],['activo','Activos'],['canjeado','Canjeados'],['vencido','Vencidos']].map(([v, l]) => (
-                <button key={v} className={filtroCupon === v ? 'btn-primary' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setFiltroCupon(v)}>{l}</button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {[['todos','Todos'],['domicilio','Solo domicilios'],['manual','Solo manuales']].map(([v, l]) => (
-                <button key={v} className={origenCupon === v ? 'btn-accent' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setOrigenCupon(v)}>{l}</button>
-              ))}
-            </div>
-          </div>
-        ) : null}
+      {/* Buscador (solo para tabs que no son cupones) */}
+      {tab !== 'cupones' ? (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <input
+            className="input-field"
+            placeholder={
+              tab === 'compras'   ? 'Buscar por nombre, DPI o teléfono...' :
+              tab === 'pedidos'   ? 'Buscar por nombre, DPI, teléfono o N° pedido...' :
+              tab === 'productos' ? 'Buscar producto...' :
+              'Buscar por nombre o DPI...'
+            }
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            style={{ maxWidth: 340 }}
+          />
+        </div>
+      ) : null}
       </div>
 
       {loading ? <div className="card muted" style={{ textAlign: 'center', padding: 24 }}>Cargando datos...</div> : null}
@@ -394,58 +395,88 @@ export default function Reportes() {
         </div>
       ) : null}
 
-      {/* Tabla Cupones */}
-      {!loading && tab === 'cupones' ? (
-        <div className="card table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Fecha emisión</th>
-                <th>Código</th>
-                <th style={{ textAlign: 'right' }}>Valor cupón</th>
-                <th>Cliente</th>
-                <th>Teléfono</th>
-                <th>DPI</th>
-                <th>N° Pedido</th>
-                <th style={{ textAlign: 'right' }}>Gasto pedido</th>
-                <th>Estado</th>
-                <th>Vence</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cuponesVisisbles.length === 0 ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
-              ) : cuponesVisisbles.map((c) => (
-                <tr key={c.id}>
-                  <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(c.fecha_emision)}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>{c.codigo}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.valor)}</td>
-                  <td><strong>{c.usuarios?.nombre || '—'}</strong></td>
-                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.telefono || '—'}</td>
-                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.dpi || '—'}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
-                    {c.pedido_id ? c.pedido_id.slice(0, 8).toUpperCase() : '—'}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                    {c.pedido_monto != null ? money(c.pedido_monto) : '—'}
-                  </td>
-                  <td><Badge text={c.estado} /></td>
-                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.fecha_vencimiento ? new Date(c.fecha_vencimiento).toLocaleDateString('es-GT') : '—'}</td>
-                </tr>
+      {/* Tabla Cupones — independiente del filtro de periodo */}
+      {tab === 'cupones' ? (
+        <div>
+          {/* Buscador y filtro propios del tab cupones */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <input
+              className="input-field"
+              placeholder="Buscar por código, cliente, teléfono o N° pedido..."
+              value={busquedaCupon}
+              onChange={(e) => setBusquedaCupon(e.target.value)}
+              style={{ maxWidth: 340 }}
+            />
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[['todos','Todos'],['activo','Activos'],['canjeado','Canjeados'],['vencido','Vencidos']].map(([v, l]) => (
+                <button key={v} className={filtroCuponEstado === v ? 'btn-primary' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setFiltroCuponEstado(v)}>{l}</button>
               ))}
-            </tbody>
-            {cuponesVisisbles.length > 0 ? (
-              <tfoot>
-                <tr style={{ fontWeight: 900, background: '#f0faf6' }}>
-                  <td colSpan={2}>Total</td>
-                  <td style={{ textAlign: 'right' }}>{money(cuponesVisisbles.reduce((s, c) => s + Number(c.valor || 0), 0))}</td>
-                  <td colSpan={7} style={{ fontSize: 12, color: 'var(--mall-muted)' }}>
-                    Activos: {cuponesVisisbles.filter(c => c.estado === 'activo').length} · Canjeados: {cuponesVisisbles.filter(c => c.estado === 'canjeado').length}
-                  </td>
-                </tr>
-              </tfoot>
-            ) : null}
-          </table>
+            </div>
+          </div>
+
+          {loadingCupones ? <div className="card muted" style={{ textAlign: 'center', padding: 24 }}>Cargando cupones...</div> : (
+            <div className="card table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Fecha emisión</th>
+                    <th>Código</th>
+                    <th style={{ textAlign: 'right' }}>Valor</th>
+                    <th>Cliente</th>
+                    <th>Teléfono</th>
+                    <th>N° Pedido</th>
+                    <th style={{ textAlign: 'right' }}>Gasto</th>
+                    <th>Estado</th>
+                    <th>Vence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cuponesVisibles.length === 0 ? (
+                    <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 24 }}>
+                      {cupones.length === 0 ? 'No hay cupones registrados aún.' : 'Sin resultados para el filtro actual.'}
+                    </td></tr>
+                  ) : cuponesVisibles.map((c) => (
+                    <tr key={c.id}>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(c.fecha_emision)}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>{c.codigo}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.valor)}</td>
+                      <td><strong>{c.usuarios?.nombre || '—'}</strong></td>
+                      <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.telefono || '—'}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
+                        {c.pedido_id ? c.pedido_id.slice(0, 8).toUpperCase() : <span className="muted">Manual</span>}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                        {c.pedido_monto != null ? money(c.pedido_monto) : '—'}
+                      </td>
+                      <td>
+                        <span style={{
+                          background: c.estado === 'activo' ? '#dff7ed' : c.estado === 'canjeado' ? '#fff1d7' : '#f3f4f6',
+                          color:      c.estado === 'activo' ? '#0f6e56' : c.estado === 'canjeado' ? '#87510b' : '#6b7280',
+                          borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap',
+                        }}>
+                          {c.estado === 'activo' ? '✓ Activo' : c.estado === 'canjeado' ? '✗ Canjeado' : 'Vencido'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>
+                        {c.fecha_vencimiento ? new Date(c.fecha_vencimiento).toLocaleDateString('es-GT') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {cuponesVisibles.length > 0 ? (
+                  <tfoot>
+                    <tr style={{ fontWeight: 900, background: '#f0faf6' }}>
+                      <td colSpan={2}>Total ({cuponesVisibles.length})</td>
+                      <td style={{ textAlign: 'right' }}>{money(cuponesVisibles.reduce((s, c) => s + Number(c.valor || 0), 0))}</td>
+                      <td colSpan={6} style={{ fontSize: 12, color: 'var(--mall-muted)', fontWeight: 400 }}>
+                        Activos: {cuponesVisibles.filter(c => c.estado === 'activo').length} · Canjeados: {cuponesVisibles.filter(c => c.estado === 'canjeado').length} · Vencidos: {cuponesVisibles.filter(c => c.estado === 'vencido').length}
+                      </td>
+                    </tr>
+                  </tfoot>
+                ) : null}
+              </table>
+            </div>
+          )}
         </div>
       ) : null}
 
