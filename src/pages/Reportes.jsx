@@ -42,6 +42,7 @@ export default function Reportes() {
   const [customEnd, setCustomEnd] = useState(dateInputValue(new Date()))
   const [tab, setTab] = useState('compras')
   const [filtroCupon, setFiltroCupon] = useState('todos')
+  const [origenCupon, setOrigenCupon] = useState('todos')
   const [data, setData] = useState({ compras: [], pedidos: [], movimientos: [], productos: [], cupones: [] })
   const [loading, setLoading] = useState(false)
   const [busqueda, setBusqueda] = useState('')
@@ -52,12 +53,12 @@ export default function Reportes() {
     async function load() {
       setLoading(true)
       setBusqueda('')
-      const [compras, pedidos, movimientos, detalles, cupones] = await Promise.all([
+      const [compras, pedidos, movimientos, detalles, cuponesRes] = await Promise.all([
         supabase.from('compras').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('pedidos').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('movimientos_puntos').select('*, usuarios(nombre, dpi)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('detalle_pedidos').select('nombre_producto, cantidad, precio_unitario, subtotal, pedidos!inner(created_at)').gte('pedidos.created_at', range.start).lte('pedidos.created_at', range.end),
-        supabase.from('cupones').select('*, usuarios(nombre, dpi, telefono), pedidos!pedido_id(id, monto_total)').gte('fecha_emision', range.start).lte('fecha_emision', range.end).order('fecha_emision', { ascending: false }),
+        supabase.from('cupones').select('*, usuarios(nombre, dpi, telefono)').gte('fecha_emision', range.start).lte('fecha_emision', range.end).order('fecha_emision', { ascending: false }),
       ])
 
       const productosAgrupados = Object.values((detalles.data || []).reduce((acc, d) => {
@@ -68,12 +69,22 @@ export default function Reportes() {
         return acc
       }, {})).sort((a, b) => b.cantidad - a.cantidad)
 
+      // Obtener monto_total de los pedidos relacionados a cupones (sin depender de FK join)
+      const cuponesData = cuponesRes.data || []
+      const pedidoIds = [...new Set(cuponesData.filter((c) => c.pedido_id).map((c) => c.pedido_id))]
+      let pedidoMontos = {}
+      if (pedidoIds.length > 0) {
+        const { data: montosData } = await supabase.from('pedidos').select('id, monto_total').in('id', pedidoIds)
+        if (montosData) pedidoMontos = Object.fromEntries(montosData.map((p) => [p.id, p.monto_total]))
+      }
+      const cupones = cuponesData.map((c) => ({ ...c, pedido_monto: c.pedido_id ? pedidoMontos[c.pedido_id] ?? null : null }))
+
       setData({
         compras: compras.data || [],
         pedidos: pedidos.data || [],
         movimientos: movimientos.data || [],
         productos: productosAgrupados,
-        cupones: cupones.data || [],
+        cupones,
       })
       setLoading(false)
     }
@@ -103,9 +114,10 @@ export default function Reportes() {
   )
 
   const cuponesVisisbles = data.cupones.filter((c) => {
-    const matchQ = !q || c.codigo?.includes(q.toUpperCase()) || c.usuarios?.nombre?.toLowerCase().includes(q) || c.usuarios?.dpi?.includes(q) || c.usuarios?.telefono?.includes(q) || (c.pedidos?.id && c.pedidos.id.slice(0, 8).toLowerCase().includes(q))
+    const matchQ = !q || c.codigo?.includes(q.toUpperCase()) || c.usuarios?.nombre?.toLowerCase().includes(q) || c.usuarios?.dpi?.includes(q) || c.usuarios?.telefono?.includes(q) || (c.pedido_id && c.pedido_id.slice(0, 8).toLowerCase().includes(q))
     const matchFiltro = filtroCupon === 'todos' || c.estado === filtroCupon
-    return matchQ && matchFiltro
+    const matchOrigen = origenCupon === 'todos' || (origenCupon === 'domicilio' ? !!c.pedido_id : !c.pedido_id)
+    return matchQ && matchFiltro && matchOrigen
   })
 
   const TABS = [
@@ -166,10 +178,17 @@ export default function Reportes() {
           style={{ maxWidth: 340 }}
         />
         {tab === 'cupones' ? (
-          <div style={{ display: 'flex', gap: 6 }}>
-            {[['todos','Todos'],['activo','Activos'],['canjeado','Canjeados'],['vencido','Vencidos']].map(([v, l]) => (
-              <button key={v} className={filtroCupon === v ? 'btn-primary' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setFiltroCupon(v)}>{l}</button>
-            ))}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[['todos','Todos'],['activo','Activos'],['canjeado','Canjeados'],['vencido','Vencidos']].map(([v, l]) => (
+                <button key={v} className={filtroCupon === v ? 'btn-primary' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setFiltroCupon(v)}>{l}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[['todos','Todos'],['domicilio','Solo domicilios'],['manual','Solo manuales']].map(([v, l]) => (
+                <button key={v} className={origenCupon === v ? 'btn-accent' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setOrigenCupon(v)}>{l}</button>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>
@@ -324,10 +343,10 @@ export default function Reportes() {
                   <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.telefono || '—'}</td>
                   <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.dpi || '—'}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
-                    {c.pedidos?.id ? c.pedidos.id.slice(0, 8).toUpperCase() : '—'}
+                    {c.pedido_id ? c.pedido_id.slice(0, 8).toUpperCase() : '—'}
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                    {c.pedidos?.monto_total ? money(c.pedidos.monto_total) : '—'}
+                    {c.pedido_monto != null ? money(c.pedido_monto) : '—'}
                   </td>
                   <td><Badge text={c.estado} /></td>
                   <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.fecha_vencimiento ? new Date(c.fecha_vencimiento).toLocaleDateString('es-GT') : '—'}</td>
