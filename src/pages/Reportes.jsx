@@ -46,6 +46,7 @@ export default function Reportes() {
   const [data, setData] = useState({ compras: [], pedidos: [], movimientos: [], productos: [], cupones: [] })
   const [loading, setLoading] = useState(false)
   const [busqueda, setBusqueda] = useState('')
+  const [facturaAbierta, setFacturaAbierta] = useState(null)
 
   const range = useMemo(() => getRange(period, customStart, customEnd), [period, customStart, customEnd])
 
@@ -55,7 +56,7 @@ export default function Reportes() {
       setBusqueda('')
       const [compras, pedidos, movimientos, detalles, cuponesRes] = await Promise.all([
         supabase.from('compras').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
-        supabase.from('pedidos').select('*, usuarios(nombre, dpi, telefono)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
+        supabase.from('pedidos').select('*, usuarios(nombre, dpi, telefono), detalle_pedidos(nombre_producto, cantidad, precio_unitario, subtotal)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('movimientos_puntos').select('*, usuarios(nombre, dpi)').gte('created_at', range.start).lte('created_at', range.end).order('created_at', { ascending: false }),
         supabase.from('detalle_pedidos').select('nombre_producto, cantidad, precio_unitario, subtotal, pedidos!inner(created_at)').gte('pedidos.created_at', range.start).lte('pedidos.created_at', range.end),
         supabase.from('cupones').select('*, usuarios(nombre, dpi, telefono)').gte('fecha_emision', range.start).lte('fecha_emision', range.end).order('fecha_emision', { ascending: false }),
@@ -207,20 +208,60 @@ export default function Reportes() {
                 <th>Teléfono</th>
                 <th style={{ textAlign: 'right' }}>Monto</th>
                 <th style={{ textAlign: 'right' }}>Puntos</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {comprasFiltradas.length === 0 ? (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
               ) : comprasFiltradas.map((c) => (
-                <tr key={c.id}>
-                  <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(c.created_at)}</td>
-                  <td><strong>{c.usuarios?.nombre || '—'}</strong></td>
-                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.dpi || '—'}</td>
-                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.telefono || '—'}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.monto_total)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--mall-main)', fontWeight: 600 }}>{c.puntos_ganados || 0}</td>
-                </tr>
+                <>
+                  <tr key={c.id}>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(c.created_at)}</td>
+                    <td><strong>{c.usuarios?.nombre || 'C/F'}</strong></td>
+                    <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.dpi || '—'}</td>
+                    <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.telefono || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.monto_total)}</td>
+                    <td style={{ textAlign: 'right', color: 'var(--mall-main)', fontWeight: 600 }}>{c.puntos_ganados || 0}</td>
+                    <td>
+                      <button
+                        type="button"
+                        style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--mall-line)', background: facturaAbierta === c.id ? '#dff7ed' : 'white', cursor: 'pointer', color: 'var(--mall-main)', fontWeight: 700, whiteSpace: 'nowrap' }}
+                        onClick={() => setFacturaAbierta(facturaAbierta === c.id ? null : c.id)}
+                      >
+                        {facturaAbierta === c.id ? '▲ Ocultar' : '📄 Ver'}
+                      </button>
+                    </td>
+                  </tr>
+                  {facturaAbierta === c.id ? (
+                    <tr key={c.id + '_det'}>
+                      <td colSpan={7} style={{ padding: '0 0 10px 0', background: '#f8fdf9' }}>
+                        <div style={{ padding: '10px 14px', borderTop: '2px solid var(--mall-main)' }}>
+                          <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--mall-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Compra en tienda</div>
+                          <div style={{ display: 'grid', gap: 4, fontSize: 13 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span className="muted">Cliente</span>
+                              <strong>{c.usuarios?.nombre || 'Cliente Final (C/F)'}</strong>
+                            </div>
+                            {c.usuarios?.dpi ? <div style={{ display: 'flex', justifyContent: 'space-between' }}><span className="muted">DPI</span><span>{c.usuarios.dpi}</span></div> : null}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, paddingTop: 6, borderTop: '1px solid #e0e0e0' }}>
+                              <span>Total cobrado</span>
+                              <span className="price">{money(c.monto_total)}</span>
+                            </div>
+                            {Number(c.puntos_ganados || 0) > 0 ? (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--mall-main)', fontSize: 12 }}>
+                                <span>Puntos ganados</span><span>+{c.puntos_ganados} pts</span>
+                              </div>
+                            ) : null}
+                            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                              Los productos no se guardan por compra en tienda — solo el total.
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </>
               ))}
             </tbody>
             {comprasFiltradas.length > 0 ? (
@@ -229,6 +270,7 @@ export default function Reportes() {
                   <td colSpan={4} style={{ textAlign: 'right' }}>Total:</td>
                   <td style={{ textAlign: 'right' }}>{money(comprasFiltradas.reduce((s, c) => s + Number(c.monto_total || 0), 0))}</td>
                   <td style={{ textAlign: 'right' }}>{comprasFiltradas.reduce((s, c) => s + Number(c.puntos_ganados || 0), 0)}</td>
+                  <td />
                 </tr>
               </tfoot>
             ) : null}
@@ -249,21 +291,60 @@ export default function Reportes() {
                 <th>Dirección</th>
                 <th style={{ textAlign: 'right' }}>Total</th>
                 <th>Estado</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {pedidosFiltrados.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 20 }}>Sin registros</td></tr>
               ) : pedidosFiltrados.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(p.created_at)}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>{p.id.slice(0, 8).toUpperCase()}</td>
-                  <td><strong>{p.usuarios?.nombre || '—'}</strong></td>
-                  <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{p.telefono_contacto || p.usuarios?.telefono || '—'}</td>
-                  <td style={{ fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.direccion_entrega || '—'}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(p.monto_total)}</td>
-                  <td><Badge text={p.estado} /></td>
-                </tr>
+                <>
+                  <tr key={p.id}>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(p.created_at)}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>{p.id.slice(0, 8).toUpperCase()}</td>
+                    <td><strong>{p.usuarios?.nombre || '—'}</strong></td>
+                    <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{p.telefono_contacto || p.usuarios?.telefono || '—'}</td>
+                    <td style={{ fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.direccion_entrega || '—'}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(p.monto_total)}</td>
+                    <td><Badge text={p.estado} /></td>
+                    <td>
+                      <button
+                        type="button"
+                        style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--mall-line)', background: facturaAbierta === p.id ? '#dff7ed' : 'white', cursor: 'pointer', color: 'var(--mall-main)', fontWeight: 700, whiteSpace: 'nowrap' }}
+                        onClick={() => setFacturaAbierta(facturaAbierta === p.id ? null : p.id)}
+                      >
+                        {facturaAbierta === p.id ? '▲ Ocultar' : '📄 Ver'}
+                      </button>
+                    </td>
+                  </tr>
+                  {facturaAbierta === p.id ? (
+                    <tr key={p.id + '_det'}>
+                      <td colSpan={8} style={{ padding: '0 0 10px 0', background: '#f8fdf9' }}>
+                        <div style={{ padding: '10px 14px', borderTop: '2px solid var(--mall-main)' }}>
+                          <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--mall-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                            Factura — {p.usuarios?.nombre || 'Cliente'} — {p.horario || p.hora_entrega_asignada || ''}
+                          </div>
+                          {(p.detalle_pedidos || []).length === 0 ? (
+                            <div className="muted" style={{ fontSize: 13 }}>Sin detalle de productos</div>
+                          ) : (
+                            <div style={{ display: 'grid', gap: 4 }}>
+                              {(p.detalle_pedidos || []).map((d, i) => (
+                                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '0 12px', fontSize: 13, padding: '4px 0', borderBottom: '1px dotted #e0e0e0' }}>
+                                  <span>{d.nombre_producto} <span style={{ color: 'var(--mall-muted)' }}>×{d.cantidad}</span></span>
+                                  <span style={{ color: 'var(--mall-muted)' }}>{money(d.precio_unitario)} c/u</span>
+                                  <span style={{ fontWeight: 700 }}>{money(d.subtotal)}</span>
+                                </div>
+                              ))}
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', fontWeight: 900, fontSize: 14, paddingTop: 6, borderTop: '2px solid #c7e8d8' }}>
+                                <span className="price">{money(p.monto_total)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </>
               ))}
             </tbody>
             {pedidosFiltrados.length > 0 ? (
@@ -271,7 +352,7 @@ export default function Reportes() {
                 <tr style={{ fontWeight: 900, background: '#f0faf6' }}>
                   <td colSpan={5} style={{ textAlign: 'right' }}>Total (no cancelados):</td>
                   <td style={{ textAlign: 'right' }}>{money(pedidosFiltrados.filter(p => p.estado !== 'cancelado').reduce((s, p) => s + Number(p.monto_total || 0), 0))}</td>
-                  <td />
+                  <td colSpan={2} />
                 </tr>
               </tfoot>
             ) : null}
