@@ -41,16 +41,17 @@ export default function Reportes() {
   const [customStart, setCustomStart] = useState(dateInputValue(new Date()))
   const [customEnd, setCustomEnd] = useState(dateInputValue(new Date()))
   const [tab, setTab] = useState('compras')
-  const [filtroCupon, setFiltroCupon] = useState('todos')
-  const [origenCupon, setOrigenCupon] = useState('todos')
-  const [data, setData] = useState({ compras: [], pedidos: [], movimientos: [], productos: [], cupones: [] })
+  const [data, setData] = useState({ compras: [], pedidos: [], movimientos: [], productos: [] })
   const [loading, setLoading] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [facturaAbierta, setFacturaAbierta] = useState(null)
   const [cupones, setCupones] = useState([])
   const [loadingCupones, setLoadingCupones] = useState(false)
+  const [errCupones, setErrCupones] = useState('')
   const [busquedaCupon, setBusquedaCupon] = useState('')
   const [filtroCuponEstado, setFiltroCuponEstado] = useState('todos')
+  const [cuponDesde, setCuponDesde] = useState('')
+  const [cuponHasta, setCuponHasta] = useState('')
 
   const range = useMemo(() => getRange(period, customStart, customEnd), [period, customStart, customEnd])
 
@@ -82,24 +83,18 @@ export default function Reportes() {
     load()
   }, [range])
 
-  // Cupones: carga independiente del filtro de periodo — muestra todos
+  // Cupones: usa RPC con security definer para evitar bloqueos de RLS
   useEffect(() => {
     async function loadCupones() {
       setLoadingCupones(true)
-      const { data: cuponesData } = await supabase
-        .from('cupones')
-        .select('*, usuarios(nombre, telefono, dpi)')
-        .order('fecha_emision', { ascending: false })
-        .limit(500)
-
-      const rows = cuponesData || []
-      const pedidoIds = [...new Set(rows.filter((c) => c.pedido_id).map((c) => c.pedido_id))]
-      let pedidoMontos = {}
-      if (pedidoIds.length > 0) {
-        const { data: montosData } = await supabase.from('pedidos').select('id, monto_total').in('id', pedidoIds)
-        if (montosData) pedidoMontos = Object.fromEntries(montosData.map((p) => [p.id, p.monto_total]))
+      setErrCupones('')
+      const { data: rows, error } = await supabase.rpc('get_cupones_admin')
+      if (error) {
+        setErrCupones(`Error al cargar cupones: ${error.message}`)
+        setCupones([])
+      } else {
+        setCupones(rows || [])
       }
-      setCupones(rows.map((c) => ({ ...c, pedido_monto: c.pedido_id ? (pedidoMontos[c.pedido_id] ?? null) : null })))
       setLoadingCupones(false)
     }
     loadCupones()
@@ -129,9 +124,17 @@ export default function Reportes() {
 
   const qc = busquedaCupon.toLowerCase()
   const cuponesVisibles = cupones.filter((c) => {
-    const matchQ = !qc || c.codigo?.toLowerCase().includes(qc) || c.usuarios?.nombre?.toLowerCase().includes(qc) || c.usuarios?.telefono?.includes(qc) || c.usuarios?.dpi?.includes(qc) || (c.pedido_id && c.pedido_id.slice(0, 8).toLowerCase().includes(qc))
+    const matchQ = !qc ||
+      c.codigo?.toLowerCase().includes(qc) ||
+      c.cliente_nombre?.toLowerCase().includes(qc) ||
+      c.cliente_telefono?.includes(qc) ||
+      c.cliente_dpi?.includes(qc) ||
+      c.pedido_numero?.toLowerCase().includes(qc)
     const matchEstado = filtroCuponEstado === 'todos' || c.estado === filtroCuponEstado
-    return matchQ && matchEstado
+    const fechaCupon = c.fecha_emision ? new Date(c.fecha_emision) : null
+    const matchDesde = !cuponDesde || (fechaCupon && fechaCupon >= new Date(cuponDesde + 'T00:00:00'))
+    const matchHasta = !cuponHasta || (fechaCupon && fechaCupon <= new Date(cuponHasta + 'T23:59:59'))
+    return matchQ && matchEstado && matchDesde && matchHasta
   })
 
   const TABS = [
@@ -193,7 +196,6 @@ export default function Reportes() {
           />
         </div>
       ) : null}
-      </div>
 
       {loading ? <div className="card muted" style={{ textAlign: 'center', padding: 24 }}>Cargando datos...</div> : null}
 
@@ -398,23 +400,29 @@ export default function Reportes() {
       {/* Tabla Cupones — independiente del filtro de periodo */}
       {tab === 'cupones' ? (
         <div>
-          {/* Buscador y filtro propios del tab cupones */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {/* Buscador y filtros del tab cupones */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
             <input
               className="input-field"
-              placeholder="Buscar por código, cliente, teléfono o N° pedido..."
+              placeholder="Código, cliente, teléfono, DPI o N° pedido..."
               value={busquedaCupon}
               onChange={(e) => setBusquedaCupon(e.target.value)}
-              style={{ maxWidth: 340 }}
+              style={{ minWidth: 240, maxWidth: 300 }}
             />
-            <div style={{ display: 'flex', gap: 4 }}>
-              {[['todos','Todos'],['activo','Activos'],['canjeado','Canjeados'],['vencido','Vencidos']].map(([v, l]) => (
-                <button key={v} className={filtroCuponEstado === v ? 'btn-primary' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setFiltroCuponEstado(v)}>{l}</button>
-              ))}
-            </div>
+            <input className="input-field" type="date" value={cuponDesde} onChange={(e) => setCuponDesde(e.target.value)} style={{ maxWidth: 150 }} title="Desde" />
+            <input className="input-field" type="date" value={cuponHasta} onChange={(e) => setCuponHasta(e.target.value)} style={{ maxWidth: 150 }} title="Hasta" />
+            {(cuponDesde || cuponHasta) ? (
+              <button className="btn-outline" style={{ fontSize: 12 }} onClick={() => { setCuponDesde(''); setCuponHasta('') }}>✕ Limpiar fechas</button>
+            ) : null}
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+            {[['todos','Todos'],['activo','Activos'],['canjeado','Canjeados'],['vencido','Vencidos']].map(([v, l]) => (
+              <button key={v} className={filtroCuponEstado === v ? 'btn-primary' : 'btn-outline'} style={{ fontSize: 12 }} onClick={() => setFiltroCuponEstado(v)}>{l}</button>
+            ))}
           </div>
 
-          {loadingCupones ? <div className="card muted" style={{ textAlign: 'center', padding: 24 }}>Cargando cupones...</div> : (
+          {loadingCupones ? <div className="card muted" style={{ textAlign: 'center', padding: 24 }}>Cargando cupones...</div> :
+          errCupones ? <div className="error">{errCupones}</div> : (
             <div className="card table-wrap">
               <table className="table">
                 <thead>
@@ -423,6 +431,7 @@ export default function Reportes() {
                     <th>Código</th>
                     <th style={{ textAlign: 'right' }}>Valor</th>
                     <th>Cliente</th>
+                    <th>DPI</th>
                     <th>Teléfono</th>
                     <th>N° Pedido</th>
                     <th style={{ textAlign: 'right' }}>Gasto</th>
@@ -432,7 +441,7 @@ export default function Reportes() {
                 </thead>
                 <tbody>
                   {cuponesVisibles.length === 0 ? (
-                    <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 24 }}>
+                    <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--mall-muted)', padding: 24 }}>
                       {cupones.length === 0 ? 'No hay cupones registrados aún.' : 'Sin resultados para el filtro actual.'}
                     </td></tr>
                   ) : cuponesVisibles.map((c) => (
@@ -440,10 +449,11 @@ export default function Reportes() {
                       <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtFecha(c.fecha_emision)}</td>
                       <td style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, letterSpacing: 1 }}>{c.codigo}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.valor)}</td>
-                      <td><strong>{c.usuarios?.nombre || '—'}</strong></td>
-                      <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.usuarios?.telefono || '—'}</td>
+                      <td><strong>{c.cliente_nombre || '—'}</strong></td>
+                      <td style={{ fontSize: 12, color: 'var(--mall-muted)', fontFamily: 'monospace' }}>{c.cliente_dpi || '—'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--mall-muted)' }}>{c.cliente_telefono || '—'}</td>
                       <td style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
-                        {c.pedido_id ? c.pedido_id.slice(0, 8).toUpperCase() : <span className="muted">Manual</span>}
+                        {c.pedido_numero ? c.pedido_numero.toUpperCase() : <span className="muted">Manual</span>}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 700 }}>
                         {c.pedido_monto != null ? money(c.pedido_monto) : '—'}
@@ -468,7 +478,7 @@ export default function Reportes() {
                     <tr style={{ fontWeight: 900, background: '#f0faf6' }}>
                       <td colSpan={2}>Total ({cuponesVisibles.length})</td>
                       <td style={{ textAlign: 'right' }}>{money(cuponesVisibles.reduce((s, c) => s + Number(c.valor || 0), 0))}</td>
-                      <td colSpan={6} style={{ fontSize: 12, color: 'var(--mall-muted)', fontWeight: 400 }}>
+                      <td colSpan={7} style={{ fontSize: 12, color: 'var(--mall-muted)', fontWeight: 400 }}>
                         Activos: {cuponesVisibles.filter(c => c.estado === 'activo').length} · Canjeados: {cuponesVisibles.filter(c => c.estado === 'canjeado').length} · Vencidos: {cuponesVisibles.filter(c => c.estado === 'vencido').length}
                       </td>
                     </tr>
