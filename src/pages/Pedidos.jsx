@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Navbar from '../components/Navbar.jsx'
 import PageHeader from '../components/PageHeader.jsx'
 import { usePedidos } from '../hooks/usePedidos.jsx'
 import { money } from '../utils/business.js'
+import { supabase as supabaseClient } from '../supabase.js'
 
 const FLUJO = ['pendiente', 'confirmado', 'preparando', 'en_camino', 'entregado']
 
@@ -101,17 +102,33 @@ function imprimirFacturaYCupones(pedido) {
   if (w) { w.document.write(html); w.document.close(); w.focus(); window.setTimeout(() => { w.print(); w.close() }, 600) }
 }
 
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.frequency.value = 880
+    gain.gain.setValueAtTime(0.4, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6)
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.6)
+  } catch (_) {}
+}
+
 export default function Pedidos() {
   const { pedidosHoy, cambiarEstado } = usePedidos()
   const [pedidos, setPedidos] = useState([])
   const [error, setError] = useState('')
   const [cambiando, setCambiando] = useState(null)
   const [copiado, setCopiado] = useState(null)
+  const [nuevoPedido, setNuevoPedido] = useState(false)
+  const pedidosRef = useRef([])
 
   async function loadData() {
     try {
       const data = await pedidosHoy()
       setPedidos(data)
+      pedidosRef.current = data
       return data
     } catch (err) {
       setError(err.message)
@@ -120,6 +137,19 @@ export default function Pedidos() {
   }
 
   useEffect(() => { loadData() }, [])
+
+  useEffect(() => {
+    const channel = supabaseClient
+      .channel('admin-nuevos-pedidos')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'pedidos' }, () => {
+        playBeep()
+        setNuevoPedido(true)
+        loadData()
+        window.setTimeout(() => setNuevoPedido(false), 8000)
+      })
+      .subscribe()
+    return () => { supabaseClient.removeChannel(channel) }
+  }, [])
 
   async function avanzar(pedido) {
     const siguiente = BOTON_SIGUIENTE[pedido.estado]?.siguiente
@@ -270,6 +300,17 @@ export default function Pedidos() {
   return (
     <Navbar>
       <PageHeader title="Pedidos de hoy" subtitle="Confirma pedidos y usa los botones de impresión para la factura y cupones." />
+
+      {nuevoPedido ? (
+        <div style={{ background: 'linear-gradient(135deg,#1D9E75,#14795a)', color: 'white', borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, boxShadow: '0 4px 20px rgba(29,158,117,.4)', animation: 'pulse 1s ease-in-out' }}>
+          <span style={{ fontSize: 28 }}>🔔</span>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 15 }}>¡Nuevo pedido recibido!</div>
+            <div style={{ fontSize: 13, opacity: 0.85 }}>Revisa los pedidos activos abajo.</div>
+          </div>
+        </div>
+      ) : null}
+
       {error ? <div className="error">{error}</div> : null}
 
       {activos.length === 0 && terminados.length === 0 ? (
