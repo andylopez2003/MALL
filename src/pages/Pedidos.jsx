@@ -225,6 +225,7 @@ export default function Pedidos() {
         <div style={{ display: 'grid', gap: 4, fontSize: 13 }}>
           <div><span className="muted">Dirección: </span>{p.direccion_entrega}</div>
           <div><span className="muted">Horario: </span><strong>{p.hora_entrega_asignada || p.horario || '—'}</strong></div>
+          {p.notas ? <div style={{ background: '#fffdf0', border: '1px solid #f5e08a', borderRadius: 8, padding: '6px 10px' }}>📝 <span style={{ fontWeight: 700 }}>Nota:</span> {p.notas}</div> : null}
           {p.genera_cupon && p.estado === 'pendiente'
             ? <div style={{ fontSize: 12, color: 'var(--mall-accent)' }}>🎟️ Generará cupones al confirmar</div>
             : null}
